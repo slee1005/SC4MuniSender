@@ -12,6 +12,12 @@ enum DistanceDisplayUnit: String, CaseIterable, Identifiable {
         shot.isPutt ? shot.puttFeet : carry(for: shot)
     }
     func label(for shot: SavedShot) -> String { shot.isPutt ? "ft" : rawValue }
+    func roll(for shot: SavedShot) -> Double? {
+        shot.rollMeters.map { self == .meters ? $0 : $0 / 0.9144 }
+    }
+    func total(for shot: SavedShot) -> Double? {
+        shot.totalMeters.map { self == .meters ? $0 : $0 / 0.9144 }
+    }
 }
 
 enum ShotSortOrder: String, CaseIterable, Identifiable {
@@ -51,6 +57,9 @@ struct SavedShot: Codable, Identifiable, Hashable {
     var receivedAt: String?
     var club: String?
     var originalClub: String?
+    var clubClassificationLocked: Bool?
+    var shotType: String?
+    var physicsEstimated: Bool?
     var carryDistance: Double?
     var totalDistance: Double?
     var ballSpeed: Double?
@@ -145,6 +154,22 @@ struct SavedShot: Codable, Identifiable, Hashable {
     }
     var puttFeet: Double? { totalMeters.map { $0 / 0.3048 } }
     var listDistanceMeters: Double? { isPutt ? totalMeters : carryMeters }
+    var rollMeters: Double? {
+        guard let total = totalMeters, let carry = carryMeters else { return nil }
+        return total - carry
+    }
+    var shotTypeLabel: String? {
+        switch shotType {
+        case "baseline": return "대표샷"
+        case "draw": return "드로우"
+        case "fade": return "페이드"
+        case "low_draw": return "낮은 드로우"
+        case "low_fade": return "낮은 페이드"
+        case "pitch": return "피칭샷"
+        case "chip": return "칩샷"
+        default: return nil
+        }
+    }
     var apexMeters: Double? {
         guard let value = apex, value.isFinite, value >= 0 else { return nil }
         switch (distanceUnit ?? "").lowercased() {
@@ -196,7 +221,8 @@ enum ShotClubRules {
     static func apply(to shots: [SavedShot]) -> (shots: [SavedShot], count: Int) {
         var count = 0
         let result = shots.map { shot -> SavedShot in
-            guard shot.club == "W1", let yards = shot.carryYards, yards <= 240 + 1e-9 else { return shot }
+            guard shot.club == "W1", shot.clubClassificationLocked != true,
+                  let yards = shot.carryYards, yards <= 240 + 1e-9 else { return shot }
             var changed = shot
             changed.originalClub = shot.originalClub ?? shot.club
             changed.club = "W3"

@@ -58,6 +58,11 @@ enum ShotImporter {
         let number = column(["no", "number"]), distanceUnit = column(["distanceunit"])
         let speedUnit = column(["speedunit"]), apex = column(["apexft", "apexm", "apex"])
         let smash = column(["smashfactor"]), source = column(["source"]), raw = column(["rawhex"])
+        let label = column(["label"]), displayLabel = column(["displaylabel"])
+        let synthetic = column(["issynthetic"]), kind = column(["shottype"])
+        let locked = column(["clubclassificationlocked"]), estimatedPhysics = column(["physicsestimated"])
+        let generationNote = column(["generationnote"]), baseID = column(["baseshotid"])
+        let estimatedAngle = column(["launchangleisestimated"]), angleSource = column(["launchanglesource"])
         let summaries = Set(["avg", "average", "mean", "min", "max", "total", "평균", "최소", "최대", "합계"])
         var result = ShotImportResult(shots: [])
         var occurrences: [String: Int] = [:]
@@ -77,6 +82,12 @@ enum ShotImporter {
                     guard let text = value(index), !["-", "—", "n/a", "na", "null"].contains(text.lowercased()) else { return nil }
                     guard let number = Double(text), number.isFinite else { throw ReplayError.invalidFile }
                     return number
+                }
+                func boolean(_ index: Int?) throws -> Bool? {
+                    guard let text = value(index)?.lowercased() else { return nil }
+                    if ["true", "yes", "1"].contains(text) { return true }
+                    if ["false", "no", "0"].contains(text) { return false }
+                    throw ReplayError.invalidFile
                 }
                 func distance(_ index: Int?) throws -> Double? {
                     guard let number = try numeric(index), let index = index else { return nil }
@@ -134,6 +145,15 @@ enum ShotImporter {
                 shot.smashFactor = try numeric(smash)
                 shot.source = value(source) ?? "csv_import"
                 shot.rawHex = value(raw)
+                shot.label = value(label) ?? value(displayLabel)
+                shot.isSynthetic = try boolean(synthetic)
+                shot.shotType = value(kind)
+                shot.clubClassificationLocked = try boolean(locked)
+                shot.physicsEstimated = try boolean(estimatedPhysics)
+                shot.generationNote = value(generationNote)
+                shot.baseShotID = value(baseID)
+                shot.launchAngleIsEstimated = try boolean(estimatedAngle)
+                shot.launchAngleSource = value(angleSource)
                 result.shots.append(shot)
             } catch { result.skipped += 1 }
         }

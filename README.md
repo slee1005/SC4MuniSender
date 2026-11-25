@@ -78,6 +78,10 @@ JSON/JSONL과 Collector CSV는 샷 ID를 사용해 중복을 확인합니다.
 CSV의 선택 열 `Spin Axis(deg)` 또는 `spin_axis`도 가져옵니다.
 생성 샷에 `apex`와 `generationNote`가 있으면 최고 높이와 생성 안내도 표시합니다.
 높이와 캐리는 참고·계산값이며 MuniGolf에서 실측 보정한 결과가 아닙니다.
+샷에 총거리가 있으면 롤(총거리 − 캐리)과 총거리를 선택한 거리 단위로 표시합니다.
+`physicsEstimated` 기록에는 ‘모델 예상’을 표시하고, 음수 롤은 백스핀으로 되돌아온 거리로 보존합니다.
+CSV의 `label`, `shot_type`, `is_synthetic`, `physics_estimated`, `generation_note`와
+발사각 추정 정보도 가져와 클럽 이름·샷 종류·가정값 안내를 유지합니다.
 
 스핀축의 부호는 +가 오른쪽, −가 왼쪽 휨을 뜻하는
 [스핀축 정의](https://support.trackmangolf.com/hc/en-us/articles/39726408967323-Parameters-Spin-Axis-Tee-to-Green)를 따릅니다.
@@ -93,6 +97,8 @@ CSV의 선택 열 `Spin Axis(deg)` 또는 `spin_axis`도 가져옵니다.
 
 캐리 240yd 이하의 드라이버(`W1`) 기록은 앱에서 3번 우드(`W3`)로 분류합니다.
 미터·피트 단위 기록도 실제 거리로 비교하며 원래 클럽 정보를 안내합니다.
+클럽을 명시해 만든 연습 기록의 `clubClassificationLocked=true`는 이 거리 분류를 건너뜁니다.
+예를 들어 낮은 탄도의 드라이버 연습 샷은 캐리가 짧아져도 드라이버로 남습니다.
 
 사용자가 요청한 발사각 조정은 별도 파일에 보관합니다.
 

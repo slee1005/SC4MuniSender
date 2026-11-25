@@ -10,6 +10,7 @@ struct ReplayTests {
         try putting()
         try puttingMaker()
         try shotAdjustments()
+        try curatedMetadata()
         try deletedShots()
         if CommandLine.arguments.contains("--network") { try await network() }
         print("PASS: SC4 units, packet validation, missing-value handling, original preservation, JSON framing" +
@@ -30,6 +31,34 @@ struct ReplayTests {
                    "removal is idempotent and preserves input records")
         try expectThrows("damaged deletion list is reported") { _ = try DeletedShots.load(Data("broken".utf8)) }
         try expectThrows("blank deletion IDs are refused") { _ = try DeletedShots.load(Data(#"[" "]"#.utf8)) }
+    }
+
+    static func curatedMetadata() throws {
+        let csv = """
+        id,club,label,shot_type,is_synthetic,club_classification_locked,physics_estimated,carry_distance,total_distance,distance_unit,ball_speed,club_speed,speed_unit,launch_angle_deg,launch_direction_deg,spin_rpm,spin_axis_deg,launch_angle_is_estimated,launch_angle_source,generation_note,base_shot_id
+        practice-driver,W1,드라이버 · 낮은 드로우,low_draw,true,true,true,190,205,m,60,42,m/s,10,1.5,2200,-6,true,practice_assumption,모델 예상값,fixture-base
+        """
+        let result = try ShotImporter.load(Data(csv.utf8), filename: "curated.csv")
+        let shot = result.shots[0]
+        try expect(result.skipped == 0 && shot.clubLabel == "드라이버 · 낮은 드로우" &&
+                   shot.shotTypeLabel == "낮은 드로우" && shot.isGenerated && shot.physicsEstimated == true,
+                   "practice CSV preserves club/shape labels and estimate status")
+        try expect(shot.launchAngleIsEstimated == true && shot.launchAngleSource == "practice_assumption" &&
+                   shot.generationNote == "모델 예상값" && shot.baseShotID == "fixture-base",
+                   "practice assumptions and provenance survive CSV importing")
+        let reopened = try JSONDecoder().decode(SavedShot.self, from: JSONEncoder().encode(shot))
+        try expect(ShotClubRules.apply(to: [reopened]).count == 0 && reopened.club == "W1" &&
+                   reopened.clubClassificationLocked == true, "curated low driver retains its explicitly assigned club")
+        try expect(abs(DistanceDisplayUnit.meters.roll(for: shot)! - 15) < 1e-9 &&
+                   abs(DistanceDisplayUnit.yards.roll(for: shot)! - 15 / 0.9144) < 1e-9 &&
+                   abs(DistanceDisplayUnit.yards.total(for: shot)! - 205 / 0.9144) < 1e-9,
+                   "roll and total follow display units")
+        var backspin = shot
+        backspin.totalDistance = 188
+        try expect(backspin.rollMeters == -2, "signed roll retains backspin rather than clamping it")
+        let wire = try ShotInputs(shot: reopened).payload(deviceID: "CuratedTest", number: 1, carryYards: reopened.carryYards)
+        try expect(wire.BallData?.SpinAxis == -6 && wire.BallData?.HLA == 1.5 && wire.BallData?.VLA == 10,
+                   "saved practice shape is used when sending")
     }
 
     static func shotAdjustments() throws {

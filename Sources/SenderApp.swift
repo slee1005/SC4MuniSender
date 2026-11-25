@@ -226,9 +226,9 @@ private struct SenderView: View {
                 TableColumn("샷 시각") { shot in
                     Text(shot.dateLabel).font(.system(size: 11)).monospacedDigit()
                 }.width(min: 112, ideal: 119)
-                TableColumn("클럽") { shot in
+                TableColumn("클럽 · 샷 종류") { shot in
                     Text(shot.clubLabel).font(.system(size: 11)).help(shot.clubLabel)
-                }.width(min: 80, ideal: 135)
+                }.width(min: 180, ideal: 230)
                 TableColumn("거리") { shot in
                     Text("\(number(model.distanceDisplayUnit.listDistance(for: shot))) \(model.distanceDisplayUnit.label(for: shot))")
                         .font(.system(size: 11)).monospacedDigit()
@@ -305,6 +305,14 @@ private struct SenderView: View {
                 }
                 Text("\(selected.isPutt ? "목표 굴림 거리" : "캐리") \(model.inputMode == .puttingMaker ? ShotInputs.text(selected.puttFeet) : number(model.distanceDisplayUnit.listDistance(for: selected))) \(model.distanceDisplayUnit.label(for: selected))")
                     .font(.system(size: 12)).foregroundStyle(muted)
+                if let type = selected.shotTypeLabel {
+                    Text("샷 종류: \(type)").font(.system(size: 12, weight: .medium)).foregroundStyle(accent)
+                }
+                if !selected.isPutt, selected.rollMeters != nil {
+                    Text("\(selected.physicsEstimated == true ? "모델 예상 " : "")롤 \(number(model.distanceDisplayUnit.roll(for: selected))) \(model.distanceDisplayUnit.rawValue) · 총거리 \(number(model.distanceDisplayUnit.total(for: selected))) \(model.distanceDisplayUnit.rawValue)")
+                        .font(.system(size: 12)).foregroundStyle(muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 if selected.originalClub == "W1", selected.club == "W3" {
                     Label("캐리 240yd 이하 · 드라이버 → 3번 우드", systemImage: "arrow.triangle.2.circlepath")
                         .font(.system(size: 11)).foregroundStyle(accent)
@@ -333,7 +341,7 @@ private struct SenderView: View {
                         .font(.system(size: 11)).foregroundStyle(Color.orange)
                         .fixedSize(horizontal: false, vertical: true)
                 } else if selected.launchAngleIsEstimated == true {
-                    Label("발사각은 캐리·최고 높이로 계산한 추정값입니다.", systemImage: "info.circle")
+                    Label(selected.launchAngleSource == "practice_assumption" ? "발사각은 연습용 설정값이며 측정값이 아닙니다." : "발사각은 캐리·최고 높이로 계산한 추정값입니다.", systemImage: "info.circle")
                         .font(.system(size: 11)).foregroundStyle(Color.orange)
                         .fixedSize(horizontal: false, vertical: true)
                 }
