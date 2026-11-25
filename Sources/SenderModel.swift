@@ -8,6 +8,10 @@ final class SenderModel: ObservableObject {
     @Published var shots: [SavedShot] = []
     @Published var selectedID: String? { didSet { selectionChanged() } }
     @Published var inputs = ShotInputs()
+    @Published var inputMode: SenderInputMode = .savedShots { didSet { selectionChanged() } }
+    @Published var puttingFeet = "10" {
+        didSet { if inputMode == .puttingMaker { selectionChanged() } }
+    }
     @Published var search = ""
     @Published var host: String { didSet { serverResponded = false } }
     @Published var port: String { didSet { serverResponded = false } }
@@ -42,7 +46,14 @@ final class SenderModel: ObservableObject {
         }
     }
 
-    var selected: SavedShot? { shots.first { $0.id == selectedID } }
+    var selected: SavedShot? {
+        inputMode == .puttingMaker ? try? PuttingShotMaker.make(distanceFeet: puttingFeet)
+            : shots.first { $0.id == selectedID }
+    }
+    var puttingDistanceIssue: String? {
+        do { _ = try PuttingShotMaker.make(distanceFeet: puttingFeet); return nil }
+        catch { return error.localizedDescription }
+    }
     var filtered: [SavedShot] {
         let query = search.trimmingCharacters(in: .whitespacesAndNewlines)
         let matches = query.isEmpty ? shots : shots.filter {
@@ -52,6 +63,7 @@ final class SenderModel: ObservableObject {
         return shotSortOrder.sorted(matches)
     }
     var inputIssue: String? {
+        if inputMode == .puttingMaker, let issue = puttingDistanceIssue { return issue }
         guard let selected = selected else { return "목록에서 샷을 선택해 주세요." }
         do { _ = try inputs.payload(deviceID: deviceID, number: 1, carryYards: selected.carryYards); return nil }
         catch { return error.localizedDescription }
@@ -150,6 +162,7 @@ final class SenderModel: ObservableObject {
 
     private func selectionChanged() {
         if let shot = selected { inputs = ShotInputs(shot: shot) }
+        else { inputs = ShotInputs() }
     }
 
     func checkConnection() { perform(sendShot: false) }
@@ -164,7 +177,8 @@ final class SenderModel: ObservableObject {
             return
         }
         let payload: OpenConnectMessage
-        let sendingID = selectedID
+        let sendingID = inputMode == .savedShots ? selectedID : nil
+        let sendingLabel = inputMode == .puttingMaker ? selected?.clubLabel : nil
         let sequence: Int
         do {
             if sendShot {
@@ -188,7 +202,7 @@ final class SenderModel: ObservableObject {
                 if sendShot {
                     sentCount += 1
                     lastSentID = sendingID
-                    message = "샷 #\(sequence) 전송 완료 · MuniGolf에서 시뮬레이션을 확인하세요."
+                    message = "\(sendingLabel ?? "샷") #\(sequence) 전송 완료 · MuniGolf에서 시뮬레이션을 확인하세요."
                 } else { message = "MuniGolf 응답 확인 (200) · 샷을 선택하고 전송하세요." }
             } catch {
                 serverResponded = false

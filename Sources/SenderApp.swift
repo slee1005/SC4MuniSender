@@ -27,7 +27,18 @@ private struct SenderView: View {
             header
             connectionBar
             HStack(alignment: .top, spacing: 17) {
-                records
+                VStack(spacing: 12) {
+                    Picker("샷 선택", selection: $model.inputMode) {
+                        ForEach(SenderInputMode.allCases) { mode in
+                            Text(mode.title).tag(mode)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .accessibilityLabel("샷 입력 방식")
+                    if model.inputMode == .savedShots { records }
+                    else { puttingMaker }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
                 editor.frame(width: 345)
             }
             .disabled(model.isBusy)
@@ -42,6 +53,68 @@ private struct SenderView: View {
                 model.selectedID = model.filtered.first?.id
             }
         }
+    }
+
+    private var puttingMaker: some View {
+        ScrollView {
+        VStack(alignment: .leading, spacing: 20) {
+            HStack(spacing: 12) {
+                Image(systemName: "flag.fill")
+                    .font(.system(size: 24)).foregroundStyle(accent)
+                    .frame(width: 50, height: 50)
+                    .background(accent.opacity(0.07), in: RoundedRectangle(cornerRadius: 12))
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("퍼팅 샷메이커").font(.system(size: 20, weight: .semibold))
+                    Text("원하는 거리를 입력해 퍼팅을 만드세요.")
+                        .font(.system(size: 12)).foregroundStyle(muted)
+                }
+            }
+            Divider()
+            VStack(alignment: .leading, spacing: 9) {
+                Text("퍼팅 거리").font(.system(size: 14, weight: .semibold))
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    TextField("예: 12.5", text: $model.puttingFeet)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(size: 29, weight: .medium, design: .rounded))
+                        .frame(maxWidth: 210)
+                        .accessibilityLabel("퍼팅 거리 피트")
+                    Text("ft").font(.system(size: 22, weight: .medium)).foregroundStyle(accent)
+                }
+                Text("피트(ft)로 직접 입력하세요. 소수점도 사용할 수 있습니다.")
+                    .font(.system(size: 12)).foregroundStyle(muted)
+            }
+            if let issue = model.puttingDistanceIssue {
+                Label(issue, systemImage: "exclamationmark.circle")
+                    .font(.system(size: 12)).foregroundStyle(Color.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else if let shot = model.selected {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("\(ShotInputs.text(shot.puttFeet))ft 퍼팅")
+                        .font(.system(size: 17, weight: .semibold)).foregroundStyle(accent)
+                    Text("볼 속도 \(model.inputs.ballSpeed) mph · 출발 방향 \(model.inputs.horizontalAngle)°")
+                        .font(.system(size: 12)).foregroundStyle(muted)
+                    Text("오른쪽에서 값을 확인하고 ‘이 퍼팅을 MuniGolf로 전송’을 누르세요.")
+                        .font(.system(size: 12)).foregroundStyle(muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(15)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(surface, in: RoundedRectangle(cornerRadius: 10))
+            }
+            Label("MuniGolf에서 그린 위에 공을 두고 퍼터(PT)를 선택하세요.", systemImage: "flag")
+                .font(.system(size: 12)).foregroundStyle(accent)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 10)
+            Text("만든 퍼팅은 저장된 샷 목록에 추가되지 않습니다. 거리를 바꾸면 새 값으로 다시 계산합니다.")
+                .font(.system(size: 11)).foregroundStyle(muted)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(22)
+        }
+        .scrollIndicators(.hidden)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(.white, in: RoundedRectangle(cornerRadius: 13))
+        .overlay(RoundedRectangle(cornerRadius: 13).stroke(accent.opacity(0.08)))
     }
 
     private var header: some View {
@@ -225,9 +298,10 @@ private struct SenderView: View {
                 HStack(alignment: .firstTextBaseline) {
                     Text(selected.clubLabel).font(.system(size: 21, weight: .semibold)).foregroundStyle(accent)
                     Spacer()
-                    Text(selected.dateLabel).font(.system(size: 11)).foregroundStyle(muted)
+                    Text(model.inputMode == .puttingMaker ? "지금 만든 샷" : selected.dateLabel)
+                        .font(.system(size: 11)).foregroundStyle(muted)
                 }
-                Text("\(selected.isPutt ? "목표 굴림 거리" : "캐리") \(number(model.distanceDisplayUnit.listDistance(for: selected))) \(model.distanceDisplayUnit.label(for: selected))")
+                Text("\(selected.isPutt ? "목표 굴림 거리" : "캐리") \(model.inputMode == .puttingMaker ? ShotInputs.text(selected.puttFeet) : number(model.distanceDisplayUnit.listDistance(for: selected))) \(model.distanceDisplayUnit.label(for: selected))")
                     .font(.system(size: 12)).foregroundStyle(muted)
                 if let filename = selected.importSourceFile {
                     Label("가져온 파일: \(filename)", systemImage: "doc.badge.plus")
@@ -297,14 +371,14 @@ private struct SenderView: View {
                 .controlSize(.large)
                 .keyboardShortcut(.return, modifiers: [.command])
                 .disabled(model.isBusy || model.inputIssue != nil)
-                Text("한 번 누르면 한 샷을 보냅니다. 입력 수정은 원본 기록에 저장되지 않습니다.")
+                Text(model.inputMode == .puttingMaker ? "한 번 누르면 한 퍼팅을 보냅니다. 만든 퍼팅은 기록에 저장하지 않습니다." : "한 번 누르면 한 샷을 보냅니다. 입력 수정은 원본 기록에 저장되지 않습니다.")
                     .font(.system(size: 10)).foregroundStyle(muted)
                     .fixedSize(horizontal: false, vertical: true)
             } else {
                 Spacer()
                 Image(systemName: "cursorarrow.click").font(.system(size: 28)).foregroundStyle(muted)
                     .frame(maxWidth: .infinity)
-                Text("왼쪽 목록에서 샷을 선택하세요.")
+                Text(model.inputMode == .puttingMaker ? "왼쪽에 퍼팅 거리를 입력하세요." : "왼쪽 목록에서 샷을 선택하세요.")
                     .font(.system(size: 13)).foregroundStyle(muted)
                     .frame(maxWidth: .infinity)
                 Spacer()

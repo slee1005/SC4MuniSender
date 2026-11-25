@@ -8,10 +8,33 @@ struct ReplayTests {
         try imports()
         try sorting()
         try putting()
+        try puttingMaker()
         if CommandLine.arguments.contains("--network") { try await network() }
         print("PASS: SC4 units, packet validation, missing-value handling, original preservation, JSON framing" +
-              ", CSV/JSON import, persistent deduplication, carry sorting, putting in feet" +
+              ", CSV/JSON import, persistent deduplication, carry sorting, putting in feet, typed putt maker" +
               (CommandLine.arguments.contains("--network") ? ", TCP acknowledgement/rejection/no-retry" : ""))
+    }
+
+    static func puttingMaker() throws {
+        for text in ["12.5", "80", " 125.25 "] {
+            let made = try PuttingShotMaker.make(distanceFeet: text)
+            let expected = Double(text.trimmingCharacters(in: .whitespaces))!
+            try expect(made.isPutt && made.isGenerated && abs(made.puttFeet! - expected) < 1e-9,
+                       "typed decimal feet become a putting roll target")
+            try expect(made.missingMeasurement == nil && made.clubSpeed == nil && made.importSourceFile == nil,
+                       "maker creates a complete temporary practice putt without invented club data")
+            let message = try ShotInputs(shot: made).payload(deviceID: "TypedPuttTest", number: 51, carryYards: made.carryYards)
+            let json = try JSONSerialization.jsonObject(with: message.encoded()) as! [String: Any]
+            let ball = json["BallData"] as! [String: Any]
+            try expect(ball["VLA"] as? Double == 0 && ball["HLA"] as? Double == 0 &&
+                       ball["TotalSpin"] as? Double == 0 && ball["CarryDistance"] == nil,
+                       "typed putt sends valid zero-angle ball data without using roll target as carry")
+        }
+        for invalid in ["", " ", "0", "-5", "NaN", "inf", "abc", "1e308"] {
+            try expectThrows("invalid typed distance is refused before a shot can be sent") {
+                _ = try PuttingShotMaker.make(distanceFeet: invalid)
+            }
+        }
     }
 
     static func putting() throws {
@@ -302,12 +325,8 @@ struct ReplayTests {
         }
         let server = try MockServer(mode: .accept)
         let port = try await server.start()
-        var putting = ShotInputs()
-        putting.ballSpeed = "3.2"
-        putting.verticalAngle = "0"
-        putting.horizontalAngle = "0"
-        putting.totalSpin = "0"
-        let payload = try putting.payload(deviceID: "SyntheticPuttTCP", number: 9, carryYards: nil).encoded()
+        let made = try PuttingShotMaker.make(distanceFeet: "12.5")
+        let payload = try ShotInputs(shot: made).payload(deviceID: "SyntheticPuttTCP", number: 9, carryYards: made.carryYards).encoded()
         do {
             _ = try await OpenConnectTransport.exchange(host: "127.0.0.1", port: port, data: payload, timeout: 2)
             try expect(server.requestCount == 1 && server.requestData == payload, "low-speed zero-angle putt reaches isolated TCP server unchanged")
