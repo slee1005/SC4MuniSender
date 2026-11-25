@@ -91,6 +91,15 @@ final class SenderModel: ObservableObject {
             imported = try importStore.load()
         } catch { problems.append("가져온 기록 저장소: \(error.localizedDescription)") }
         shots = ShotImportStore.merge(originals: originals, imported: imported)
+        if FileManager.default.fileExists(atPath: DeletedShots.defaultURL.path) {
+            do {
+                let deletedIDs = try DeletedShots.load(Data(contentsOf: DeletedShots.defaultURL))
+                shots = DeletedShots.apply(deletedIDs, to: shots)
+            } catch {
+                shots = []
+                problems.append("삭제된 샷 목록: \(error.localizedDescription)")
+            }
+        }
         let clubChanges = ShotClubRules.apply(to: shots)
         shots = clubChanges.shots
         if clubChanges.count > 0 { notes.append("3W 변경 \(clubChanges.count)개") }

@@ -10,10 +10,26 @@ struct ReplayTests {
         try putting()
         try puttingMaker()
         try shotAdjustments()
+        try deletedShots()
         if CommandLine.arguments.contains("--network") { try await network() }
         print("PASS: SC4 units, packet validation, missing-value handling, original preservation, JSON framing" +
               ", CSV/JSON import, persistent deduplication, carry sorting, putting in feet, typed putt maker, practice adjustments" +
               (CommandLine.arguments.contains("--network") ? ", TCP acknowledgement/rejection/no-retry" : ""))
+    }
+
+    static func deletedShots() throws {
+        let a = SavedShot(id: "keep-original")
+        let b = SavedShot(id: "delete-original")
+        let c = SavedShot(id: "keep-import")
+        let merged = ShotImportStore.merge(originals: [a, b], imported: [b, c])
+        let ids = try DeletedShots.load(Data(#"["delete-original","delete-original"]"#.utf8))
+        let kept = DeletedShots.apply(ids, to: merged)
+        try expect(Set(kept.map(\.id)) == [a.id, c.id] && !kept.contains(b),
+                   "deleted original stays removed even when a copy is imported")
+        try expect(DeletedShots.apply(ids, to: kept) == kept && b.id == "delete-original",
+                   "removal is idempotent and preserves input records")
+        try expectThrows("damaged deletion list is reported") { _ = try DeletedShots.load(Data("broken".utf8)) }
+        try expectThrows("blank deletion IDs are refused") { _ = try DeletedShots.load(Data(#"[" "]"#.utf8)) }
     }
 
     static func shotAdjustments() throws {

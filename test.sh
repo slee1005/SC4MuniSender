@@ -10,5 +10,6 @@ swiftc -swift-version 5 -target arm64-apple-macosx13.0 \
   "$task_root/Sources/ShotImport.swift" \
   "$task_root/Sources/PuttingShotMaker.swift" \
   "$task_root/Sources/LaunchAngleAdjustments.swift" \
+  "$task_root/Sources/DeletedShots.swift" \
   "$task_root/Tests/ReplayTests.swift" -o "$task_binary"
 "$task_binary" "$@"
