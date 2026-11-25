@@ -238,7 +238,7 @@ private struct SenderView: View {
                     Text(number(shot.ballMPH)).font(.system(size: 11)).monospacedDigit()
                 }.width(min: 61, ideal: 67)
                 TableColumn("발사각") { shot in
-                    Text(number(shot.launchAngle)).font(.system(size: 11)).monospacedDigit()
+                    Text(angleNumber(shot.launchAngle)).font(.system(size: 11)).monospacedDigit()
                         .foregroundStyle(shot.launchAngle == nil ? Color.orange : Color.primary)
                 }.width(min: 47, ideal: 53)
                 TableColumn("상태") { shot in
@@ -247,6 +247,8 @@ private struct SenderView: View {
                             .font(.system(size: 10)).foregroundStyle(accent)
                     } else if let missing = shot.missingMeasurement {
                         Text(missing).font(.system(size: 10)).foregroundStyle(Color.orange)
+                    } else if shot.launchAngleIsAdjusted == true {
+                        Text("발사각 조정").font(.system(size: 10)).foregroundStyle(Color.orange)
                     } else if shot.isGenerated {
                         Text("생성 샷").font(.system(size: 10)).foregroundStyle(accent)
                     } else if shot.launchAngleIsEstimated == true {
@@ -303,6 +305,11 @@ private struct SenderView: View {
                 }
                 Text("\(selected.isPutt ? "목표 굴림 거리" : "캐리") \(model.inputMode == .puttingMaker ? ShotInputs.text(selected.puttFeet) : number(model.distanceDisplayUnit.listDistance(for: selected))) \(model.distanceDisplayUnit.label(for: selected))")
                     .font(.system(size: 12)).foregroundStyle(muted)
+                if selected.originalClub == "W1", selected.club == "W3" {
+                    Label("캐리 240yd 이하 · 드라이버 → 3번 우드", systemImage: "arrow.triangle.2.circlepath")
+                        .font(.system(size: 11)).foregroundStyle(accent)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 if let filename = selected.importSourceFile {
                     Label("가져온 파일: \(filename)", systemImage: "doc.badge.plus")
                         .font(.system(size: 11)).foregroundStyle(muted)
@@ -321,7 +328,11 @@ private struct SenderView: View {
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
-                if selected.launchAngleIsEstimated == true {
+                if selected.launchAngleIsAdjusted == true {
+                    Label("발사각 \(angleNumber(selected.originalLaunchAngle))° → \(angleNumber(selected.launchAngle))° · \(ShotInputs.text(selected.launchAngleAdjustmentPercent))% 연습용 조정", systemImage: "slider.horizontal.3")
+                        .font(.system(size: 11)).foregroundStyle(Color.orange)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else if selected.launchAngleIsEstimated == true {
                     Label("발사각은 캐리·최고 높이로 계산한 추정값입니다.", systemImage: "info.circle")
                         .font(.system(size: 11)).foregroundStyle(Color.orange)
                         .fixedSize(horizontal: false, vertical: true)
@@ -338,7 +349,7 @@ private struct SenderView: View {
                         input("클럽 속도", unit: "mph · 선택", text: $model.inputs.clubSpeed)
                     }
                     GridRow {
-                        input("수직 발사각", unit: selected.launchAngleIsEstimated == true ? "° · 추정" : "°", text: $model.inputs.verticalAngle, missing: selected.launchAngle == nil)
+                        input("수직 발사각", unit: selected.launchAngleIsAdjusted == true ? "° · 조정" : (selected.launchAngleIsEstimated == true ? "° · 추정" : "°"), text: $model.inputs.verticalAngle, missing: selected.launchAngle == nil)
                         input("출발 방향", unit: "°", text: $model.inputs.horizontalAngle, missing: selected.resolvedDirection == nil)
                     }
                     GridRow {
@@ -420,6 +431,11 @@ private struct SenderView: View {
         .padding(.horizontal, 14).padding(.vertical, 11)
         .frame(minHeight: 43)
         .background(accent.opacity(0.055), in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    private func angleNumber(_ value: Double?) -> String {
+        guard let value = value, value.isFinite else { return "—" }
+        return String(format: "%.2f", value)
     }
 
     private func number(_ value: Double?) -> String {

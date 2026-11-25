@@ -91,6 +91,17 @@ final class SenderModel: ObservableObject {
             imported = try importStore.load()
         } catch { problems.append("가져온 기록 저장소: \(error.localizedDescription)") }
         shots = ShotImportStore.merge(originals: originals, imported: imported)
+        let clubChanges = ShotClubRules.apply(to: shots)
+        shots = clubChanges.shots
+        if clubChanges.count > 0 { notes.append("3W 변경 \(clubChanges.count)개") }
+        if FileManager.default.fileExists(atPath: LaunchAngleAdjustments.defaultURL.path) {
+            do {
+                let changes = try LaunchAngleAdjustments.load(Data(contentsOf: LaunchAngleAdjustments.defaultURL))
+                let result = LaunchAngleAdjustments.apply(changes, to: shots)
+                shots = result.shots
+                if result.count > 0 { notes.append("발사각 조정 \(result.count)개") }
+            } catch { problems.append("발사각 조정: \(error.localizedDescription)") }
+        }
         if !filtered.contains(where: { $0.id == selectedID }) { selectedID = filtered.first?.id }
         fileStatus = "\(shots.count)개 샷 · 가져온 기록 \(imported.count)개"
         if !notes.isEmpty { fileStatus += " · " + notes.joined(separator: " · ") }

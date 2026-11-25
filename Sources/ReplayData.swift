@@ -50,6 +50,7 @@ struct SavedShot: Codable, Identifiable, Hashable {
     var timestamp: String?
     var receivedAt: String?
     var club: String?
+    var originalClub: String?
     var carryDistance: Double?
     var totalDistance: Double?
     var ballSpeed: Double?
@@ -68,6 +69,9 @@ struct SavedShot: Codable, Identifiable, Hashable {
     var baseShotID: String?
     var launchAngleIsEstimated: Bool?
     var launchAngleSource: String?
+    var originalLaunchAngle: Double?
+    var launchAngleIsAdjusted: Bool?
+    var launchAngleAdjustmentPercent: Double?
     var apex: Double?
     var smashFactor: Double?
     var importSourceFile: String?
@@ -185,6 +189,24 @@ struct SavedShot: Codable, Identifiable, Hashable {
             | UInt32(bytes[offset + 2]) << 16 | UInt32(bytes[offset + 3]) << 24
         let value = Double(Float(bitPattern: bits))
         return value.isFinite && abs(value) <= 90 ? value : nil
+    }
+}
+
+enum ShotClubRules {
+    static func apply(to shots: [SavedShot]) -> (shots: [SavedShot], count: Int) {
+        var count = 0
+        let result = shots.map { shot -> SavedShot in
+            guard shot.club == "W1", let yards = shot.carryYards, yards <= 240 + 1e-9 else { return shot }
+            var changed = shot
+            changed.originalClub = shot.originalClub ?? shot.club
+            changed.club = "W3"
+            if let label = shot.label {
+                changed.label = label.replacingOccurrences(of: "드라이버", with: "3번 우드")
+            }
+            count += 1
+            return changed
+        }
+        return (result, count)
     }
 }
 

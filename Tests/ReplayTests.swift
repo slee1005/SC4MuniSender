@@ -9,10 +9,71 @@ struct ReplayTests {
         try sorting()
         try putting()
         try puttingMaker()
+        try shotAdjustments()
         if CommandLine.arguments.contains("--network") { try await network() }
         print("PASS: SC4 units, packet validation, missing-value handling, original preservation, JSON framing" +
-              ", CSV/JSON import, persistent deduplication, carry sorting, putting in feet, typed putt maker" +
+              ", CSV/JSON import, persistent deduplication, carry sorting, putting in feet, typed putt maker, practice adjustments" +
               (CommandLine.arguments.contains("--network") ? ", TCP acknowledgement/rejection/no-retry" : ""))
+    }
+
+    static func shotAdjustments() throws {
+        func record(_ id: String) -> SavedShot {
+            var shot = SavedShot(id: id)
+            shot.club = "I7"
+            shot.launchAngle = 20
+            shot.launchDirection = -2
+            shot.spinAxis = 10
+            shot.spinRPM = 5000
+            shot.ballSpeed = 44.704
+            shot.speedUnit = "m/s"
+            shot.carryDistance = 100
+            shot.distanceUnit = "yd"
+            return shot
+        }
+        let originals = [record("adjust-a"), record("adjust-b")]
+        let adjustments = [
+            LaunchAngleAdjustment(id: "adjust-a", club: "I7", originalAngle: 20, adjustedAngle: 20.4, percentChange: 2),
+            LaunchAngleAdjustment(id: "adjust-b", club: "I7", originalAngle: 20, adjustedAngle: 19.6, percentChange: -2),
+        ]
+        let decoded = try LaunchAngleAdjustments.load(JSONEncoder().encode(adjustments))
+        let result = LaunchAngleAdjustments.apply(decoded, to: originals)
+        try expect(result.count == 2 && result.shots.map(\.launchAngle) == [20.4, 19.6] &&
+                   originals.allSatisfy { $0.launchAngle == 20 }, "practice angles apply without editing original values")
+        for shot in result.shots {
+            try expect(shot.originalLaunchAngle == 20 && shot.launchAngleIsAdjusted == true &&
+                       shot.launchDirection == -2 && shot.spinAxis == 10 && shot.spinRPM == 5000 && shot.carryYards == 100,
+                       "adjustments retain original-angle provenance and all other shot metrics")
+            let wire = try ShotInputs(shot: shot).payload(deviceID: "AngleTest", number: 1, carryYards: shot.carryYards)
+            try expect(wire.BallData?.VLA == shot.launchAngle, "adjusted angle is used on the wire")
+        }
+        var stale = originals[0]
+        stale.launchAngle = 21
+        try expect(LaunchAngleAdjustments.apply(decoded, to: [stale]).count == 0, "stale overrides do not replace new source measurements")
+        let tooLarge = LaunchAngleAdjustment(id: "adjust-a", club: "I7", originalAngle: 20, adjustedAngle: 21.2, percentChange: 6)
+        try expectThrows("out-of-range angle change rejected") { _ = try LaunchAngleAdjustments.load(JSONEncoder().encode([tooLarge])) }
+        try expectThrows("duplicate override IDs rejected") { _ = try LaunchAngleAdjustments.load(JSONEncoder().encode([adjustments[0], adjustments[0]])) }
+
+        var driver = record("driver-boundary")
+        driver.club = "W1"
+        driver.carryDistance = 240
+        driver.label = "드라이버 #1 · 출발 0°"
+        driver.isSynthetic = true
+        let converted = ShotClubRules.apply(to: [driver])
+        try expect(converted.count == 1 && converted.shots[0].club == "W3" && converted.shots[0].originalClub == "W1" &&
+                   converted.shots[0].label == "3번 우드 #1 · 출발 0°" && converted.shots[0].ballSpeed == driver.ballSpeed,
+                   "240-yard driver becomes 3W with matching label and preserved metrics")
+        var meters = driver
+        meters.distanceUnit = "m"; meters.carryDistance = 219.456
+        var feet = driver
+        feet.distanceUnit = "ft"; feet.carryDistance = 720
+        var longer = driver
+        longer.carryDistance = 240.01
+        var unknown = driver
+        unknown.distanceUnit = "unknown"
+        let boundaries = ShotClubRules.apply(to: [meters, feet, longer, unknown])
+        try expect(boundaries.count == 2 && boundaries.shots.map(\.club) == ["W3", "W3", "W1", "W1"],
+                   "classification respects physical units and the inclusive 240-yard boundary")
+        try expect(ShotClubRules.apply(to: converted.shots).count == 0, "club conversion is idempotent")
     }
 
     static func puttingMaker() throws {
