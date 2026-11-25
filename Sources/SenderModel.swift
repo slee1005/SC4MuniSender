@@ -14,6 +14,9 @@ final class SenderModel: ObservableObject {
     @Published var distanceDisplayUnit: DistanceDisplayUnit {
         didSet { defaults.set(distanceDisplayUnit.rawValue, forKey: "distanceDisplayUnit") }
     }
+    @Published var shotSortOrder: ShotSortOrder {
+        didSet { defaults.set(shotSortOrder.rawValue, forKey: "shotSortOrder") }
+    }
     @Published var sourceURL = ShotLoader.defaultURL
     @Published var fileStatus = ""
     @Published var message = "MuniGolf에서 연습장이나 코스를 열어 주세요."
@@ -31,6 +34,7 @@ final class SenderModel: ObservableObject {
         host = UserDefaults.standard.string(forKey: "gameHost") ?? "127.0.0.1"
         port = UserDefaults.standard.string(forKey: "gamePort") ?? "9210"
         distanceDisplayUnit = DistanceDisplayUnit(rawValue: UserDefaults.standard.string(forKey: "distanceDisplayUnit") ?? "m") ?? .meters
+        shotSortOrder = ShotSortOrder(rawValue: UserDefaults.standard.string(forKey: "shotSortOrder") ?? "newest") ?? .newest
         if let saved = UserDefaults.standard.string(forKey: "senderDeviceID") { deviceID = saved }
         else {
             deviceID = "SC4-SavedShots-" + String(UUID().uuidString.prefix(8))
@@ -41,11 +45,11 @@ final class SenderModel: ObservableObject {
     var selected: SavedShot? { shots.first { $0.id == selectedID } }
     var filtered: [SavedShot] {
         let query = search.trimmingCharacters(in: .whitespacesAndNewlines)
-        if query.isEmpty { return shots }
-        return shots.filter {
+        let matches = query.isEmpty ? shots : shots.filter {
             [$0.clubLabel, $0.club ?? "", $0.dateLabel, $0.id, $0.importSourceFile ?? ""].joined(separator: " ")
                 .localizedCaseInsensitiveContains(query)
         }
+        return shotSortOrder.sorted(matches)
     }
     var inputIssue: String? {
         guard let selected = selected else { return "목록에서 샷을 선택해 주세요." }

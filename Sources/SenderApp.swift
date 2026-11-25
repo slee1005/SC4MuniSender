@@ -128,16 +128,27 @@ private struct SenderView: View {
                     .help("저장된 샷 새로고침")
                     .accessibilityLabel("샷 새로고침")
             }
-            HStack(spacing: 7) {
-                Image(systemName: "magnifyingglass").foregroundStyle(muted)
-                TextField("클럽 또는 날짜로 검색", text: $model.search).textFieldStyle(.plain)
-                if !model.search.isEmpty {
-                    Button { model.search = "" } label: { Image(systemName: "xmark.circle.fill") }
-                        .buttonStyle(.plain).foregroundStyle(muted)
+            HStack(spacing: 10) {
+                HStack(spacing: 7) {
+                    Image(systemName: "magnifyingglass").foregroundStyle(muted)
+                    TextField("클럽 또는 날짜로 검색", text: $model.search).textFieldStyle(.plain)
+                    if !model.search.isEmpty {
+                        Button { model.search = "" } label: { Image(systemName: "xmark.circle.fill") }
+                            .buttonStyle(.plain).foregroundStyle(muted)
+                    }
                 }
+                .padding(9)
+                .background(surface, in: RoundedRectangle(cornerRadius: 8))
+                Picker("정렬", selection: $model.shotSortOrder) {
+                    ForEach(ShotSortOrder.allCases) { order in
+                        Text(order.title).tag(order)
+                    }
+                }
+                .pickerStyle(.menu)
+                .frame(width: 170)
+                .accessibilityLabel("샷 정렬")
+                .help("캐리 거리의 짧은 순·긴 순 또는 최신순으로 정렬")
             }
-            .padding(9)
-            .background(surface, in: RoundedRectangle(cornerRadius: 8))
             Table(model.filtered, selection: $model.selectedID) {
                 TableColumn("샷 시각") { shot in
                     Text(shot.dateLabel).font(.system(size: 11)).monospacedDigit()

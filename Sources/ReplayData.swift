@@ -10,6 +10,37 @@ enum DistanceDisplayUnit: String, CaseIterable, Identifiable {
     }
 }
 
+enum ShotSortOrder: String, CaseIterable, Identifiable {
+    case newest
+    case carryAscending
+    case carryDescending
+
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .newest: return "최신순"
+        case .carryAscending: return "캐리 짧은 순"
+        case .carryDescending: return "캐리 긴 순"
+        }
+    }
+
+    func sorted(_ shots: [SavedShot]) -> [SavedShot] {
+        shots.sorted { lhs, rhs in
+            if self != .newest {
+                // Compare physical distances, so mixed meter/yard records sort consistently.
+                switch (lhs.carryMeters, rhs.carryMeters) {
+                case let (a?, b?) where a != b:
+                    return self == .carryAscending ? a < b : a > b
+                case (_?, nil): return true
+                case (nil, _?): return false
+                default: break
+                }
+            }
+            return lhs.sortDate == rhs.sortDate ? lhs.id < rhs.id : lhs.sortDate > rhs.sortDate
+        }
+    }
+}
+
 struct SavedShot: Codable, Identifiable, Hashable {
     let id: String
     var timestamp: String?

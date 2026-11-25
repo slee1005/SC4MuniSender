@@ -6,10 +6,39 @@ struct ReplayTests {
     static func main() async throws {
         try core()
         try imports()
+        try sorting()
         if CommandLine.arguments.contains("--network") { try await network() }
         print("PASS: SC4 units, packet validation, missing-value handling, original preservation, JSON framing" +
-              ", CSV/JSON import, persistent deduplication" +
+              ", CSV/JSON import, persistent deduplication, carry sorting" +
               (CommandLine.arguments.contains("--network") ? ", TCP acknowledgement/rejection/no-retry" : ""))
+    }
+
+    static func sorting() throws {
+        func record(_ id: String, _ carry: Double?, _ unit: String, _ date: String) -> SavedShot {
+            var shot = SavedShot(id: id)
+            shot.carryDistance = carry
+            shot.distanceUnit = unit
+            shot.timestamp = date
+            return shot
+        }
+        let records = [
+            record("meters", 100, "m", "2026-01-02"),
+            record("yards", 100, "yd", "2026-01-03"),
+            record("missing", nil, "m", "2026-01-05"),
+            record("zero", 0, "m", "2026-01-01"),
+            record("tie-z", 100, "m", "2026-01-04"),
+            record("tie-a", 100, "m", "2026-01-04"),
+            record("unknown-unit", 200, "unknown", "2026-01-06"),
+        ]
+        try expect(ShotSortOrder.carryAscending.sorted(records).map(\.id) ==
+                   ["zero", "yards", "tie-a", "tie-z", "meters", "unknown-unit", "missing"],
+                   "ascending compares physical distance, treats zero as valid, and leaves missing units last")
+        try expect(ShotSortOrder.carryDescending.sorted(records).map(\.id) ==
+                   ["tie-a", "tie-z", "meters", "yards", "zero", "unknown-unit", "missing"],
+                   "descending keeps missing distance last and equal-distance results stable")
+        try expect(ShotSortOrder.newest.sorted(records).prefix(2).map(\.id) == ["unknown-unit", "missing"],
+                   "newest sorting remains available independent of distance")
+        try expect(records.first?.id == "meters", "display sorting never edits saved records")
     }
 
     static func imports() throws {
