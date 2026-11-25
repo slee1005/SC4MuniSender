@@ -1,0 +1,14 @@
+.DS_Store
+.build/
+dist/
+Data/
+Tools/
+.swiftpm/
+validation*.json
+*.jsonl
+*.csv
+*.sqlite*
+*.log
+*.zip
+*.app/
+!Tests/Fixtures/*.csv
