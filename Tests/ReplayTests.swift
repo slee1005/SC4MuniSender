@@ -47,6 +47,9 @@ struct ReplayTests {
         let record = try ShotImporter.load(Data(collector.utf8), filename: "collector.csv").shots[0]
         try expect(record.id == "fixture-collector" && record.carryMeters == 80 && record.club == "I7", "collector schema keeps original ID and SI units")
         try expect(record.ballSpeed == 40 && record.launchDirection == -1 && record.spinRPM == 5000, "collector measured data preserved")
+        let shapedCSV = "Ball Speed(mph),Carry(yd),Spin Axis(deg)\n100,80,-10"
+        let shape = try ShotImporter.load(Data(shapedCSV.utf8), filename: "shape.csv").shots[0]
+        try expect(shape.spinAxis == -10, "CSV optional spin axis survives importing")
         let kph = "Ball Speed(km/h);Carry(m);Launch Angle(deg);Launch Direction(deg);Spin(rpm)\n144;70;20;0;0"
         let kphShot = try ShotImporter.load(Data(kph.utf8), filename: "metric.csv").shots[0]
         try expect(abs(kphShot.ballSpeed! - 40) < 1e-9 && kphShot.spinRPM == 0, "semicolon CSV, km/h and zero spin supported")
@@ -109,6 +112,27 @@ struct ReplayTests {
         try expect(generated.isGenerated && generated.clubLabel == "SW 20%" && generated.club == "SW",
                    "generated shot is visibly labeled without changing its club identity")
         try expect(!shot.isGenerated, "measured records stay measured")
+        try expect(ShotInputs(shot: shot).spinAxis == "0", "old records without spin axis keep their explicit zero assumption")
+        for axis in [-10.0, 10.0] {
+            var shaped = shot
+            shaped.spinAxis = axis
+            shaped.isSynthetic = true
+            shaped.label = axis > 0 ? "7번 아이언 페이드" : "7번 아이언 드로우"
+            shaped.generationNote = "오른손 기준 연습용 구질"
+            shaped.apex = 12
+            let reopened = try JSONDecoder().decode(SavedShot.self, from: JSONEncoder().encode(shaped))
+            let wire = try ShotInputs(shot: reopened).payload(deviceID: "ShapeTest", number: 1, carryYards: reopened.carryYards)
+            try expect(wire.BallData?.SpinAxis == axis && reopened.generationNote == shaped.generationNote,
+                       "both fade and draw axes survive persistence, selection and transmission")
+            try expect(reopened.apexMeters == 12 && reopened.clubLabel == shaped.label, "generated height and shape label retained")
+        }
+        var invalidAxis = shot
+        invalidAxis.spinAxis = 91
+        try expect(ShotInputs(shot: invalidAxis).spinAxis.isEmpty && invalidAxis.missingMeasurement == "스핀축 필요",
+                   "invalid saved spin axis is not silently replaced with zero")
+        try expectThrows("invalid axis cannot transmit") {
+            _ = try ShotInputs(shot: invalidAxis).payload(deviceID: "Test", number: 1, carryYards: nil)
+        }
         let estimatedJSON = #"{"id":"estimated-angle-example","club":"LW","launchAngle":36.55,"launchAngleIsEstimated":true,"launchAngleSource":"estimated_from_carry_and_apex"}"#
         let estimated = try JSONDecoder().decode(SavedShot.self, from: Data(estimatedJSON.utf8))
         try expect(estimated.launchAngleIsEstimated == true && !estimated.isGenerated &&

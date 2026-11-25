@@ -22,6 +22,7 @@ struct SavedShot: Codable, Identifiable, Hashable {
     var launchAngle: Double?
     var launchDirection: Double?
     var spinRPM: Double?
+    var spinAxis: Double?
     var distanceUnit: String?
     var speedUnit: String?
     var rawHex: String?
@@ -36,12 +37,14 @@ struct SavedShot: Codable, Identifiable, Hashable {
     var smashFactor: Double?
     var importSourceFile: String?
     var importedAt: String?
+    var generationNote: String?
 
     var missingMeasurement: String? {
         guard let ball = ballMPH, (0.01...350).contains(ball) else { return "볼 속도 필요" }
         guard let angle = launchAngle, angle.isFinite, abs(angle) <= 90 else { return "발사각 필요" }
         if resolvedDirection == nil { return "방향 필요" }
         guard let spin = spinRPM, spin.isFinite, (0...100000).contains(spin) else { return "스핀 필요" }
+        if let axis = spinAxis, !axis.isFinite || abs(axis) > 90 { return "스핀축 필요" }
         return nil
     }
 
@@ -89,6 +92,14 @@ struct SavedShot: Codable, Identifiable, Hashable {
         }
     }
     var carryMeters: Double? { carryYards.map { $0 * 0.9144 } }
+    var apexMeters: Double? {
+        guard let value = apex, value.isFinite, value >= 0 else { return nil }
+        switch (distanceUnit ?? "").lowercased() {
+        case "m", "meter", "meters": return value
+        case "yd", "yard", "yards": return value * 0.9144
+        default: return nil
+        }
+    }
 
     private func speedToMPH(_ value: Double?) -> Double? {
         guard let value = value, value.isFinite, value > 0 else { return nil }
@@ -186,6 +197,7 @@ struct ShotInputs {
         verticalAngle = Self.text(shot.launchAngle.flatMap { $0.isFinite && abs($0) <= 90 ? $0 : nil })
         horizontalAngle = Self.text(shot.resolvedDirection)
         totalSpin = Self.text(shot.spinRPM)
+        spinAxis = shot.spinAxis.map { Self.text($0.isFinite && abs($0) <= 90 ? $0 : nil) } ?? "0"
         clubSpeed = Self.text(shot.clubMPH)
     }
 

@@ -143,8 +143,8 @@ private struct SenderView: View {
                     Text(shot.dateLabel).font(.system(size: 11)).monospacedDigit()
                 }.width(min: 112, ideal: 119)
                 TableColumn("클럽") { shot in
-                    Text(shot.clubLabel).font(.system(size: 11))
-                }.width(min: 65, ideal: 78)
+                    Text(shot.clubLabel).font(.system(size: 11)).help(shot.clubLabel)
+                }.width(min: 80, ideal: 135)
                 TableColumn("캐리 · \(model.distanceDisplayUnit.rawValue)") { shot in
                     Text(number(model.distanceDisplayUnit.carry(for: shot))).font(.system(size: 11)).monospacedDigit()
                 }.width(min: 60, ideal: 66)
@@ -225,6 +225,14 @@ private struct SenderView: View {
                     Label("연습용 생성 데이터 · 실제 측정값 아님", systemImage: "wand.and.stars")
                         .font(.system(size: 11)).foregroundStyle(Color.orange)
                         .fixedSize(horizontal: false, vertical: true)
+                    if let height = selected.apexMeters {
+                        Text("\(selected.source == "synthetic_lw_lob_ballistic" ? "계산상" : "참고") 최고 높이 \(number(height)) m")
+                            .font(.system(size: 11)).foregroundStyle(muted)
+                    }
+                    if let note = selected.generationNote {
+                        Text(note).font(.system(size: 11)).foregroundStyle(muted)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
                 if selected.launchAngleIsEstimated == true {
                     Label("발사각은 캐리·최고 높이로 계산한 추정값입니다.", systemImage: "info.circle")
@@ -243,12 +251,12 @@ private struct SenderView: View {
                     }
                     GridRow {
                         input("총 스핀", unit: "rpm", text: $model.inputs.totalSpin, missing: selected.spinRPM == nil)
-                        input("스핀축", unit: "° · 가정값", text: $model.inputs.spinAxis)
+                        input("스핀축", unit: selected.spinAxis == nil ? "° · 가정값" : (selected.isGenerated ? "° · 생성값" : "° · 저장값"), text: $model.inputs.spinAxis, missing: model.inputs.spinAxis.isEmpty)
                     }
                 }
                 VStack(alignment: .leading, spacing: 5) {
-                    Label("스핀축은 SC4에 기록되지 않습니다.", systemImage: "info.circle")
-                    Text("기본 0°는 스핀에 의한 휨이 없는 가정입니다. 필요한 경우 값을 바꿔 주세요.")
+                    Label(selected.spinAxis == nil ? "스핀축은 SC4에 기록되지 않습니다." : "이 샷에 저장된 스핀축을 사용합니다.", systemImage: "info.circle")
+                    Text(selected.spinAxis == nil ? "기본 0°는 스핀에 의한 휨이 없는 가정입니다. 필요한 경우 값을 바꿔 주세요." : "스핀축 +는 오른쪽, −는 왼쪽 휨을 위한 값입니다. 생성 샷은 연습용 가정값이며 수정할 수 있습니다.")
                 }
                 .font(.system(size: 11)).foregroundStyle(muted)
                 .padding(10)

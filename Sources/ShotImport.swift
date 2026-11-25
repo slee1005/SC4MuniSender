@@ -49,6 +49,7 @@ enum ShotImporter {
         let angle = column(["launchangledeg", "launchangle", "vla"])
         let direction = column(["launchdirectiondeg", "launchdirection", "hla"])
         let spin = column(["spinrpm", "spin", "totalspin"])
+        let axis = column(["spinaxis", "spinaxisdeg"])
         guard ball != nil, carry != nil || angle != nil || spin != nil else {
             throw ReplayError.input("SC4 샷 CSV의 헤더를 찾을 수 없습니다. MySwingCaddie 또는 SC4 Shot Collector에서 내보낸 파일을 선택해 주세요.")
         }
@@ -126,6 +127,7 @@ enum ShotImporter {
                 shot.launchAngle = angleValue
                 shot.launchDirection = try numeric(direction)
                 shot.spinRPM = spinValue
+                shot.spinAxis = try numeric(axis)
                 shot.distanceUnit = "m"
                 shot.speedUnit = "m/s"
                 shot.apex = try distance(apex)
