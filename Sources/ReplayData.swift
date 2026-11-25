@@ -20,6 +20,25 @@ enum DistanceDisplayUnit: String, CaseIterable, Identifiable {
     }
 }
 
+enum ShotRecordFilter: String, CaseIterable, Identifiable {
+    case all, recorded, generated
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .all: return "전체"
+        case .recorded: return "실제 기록"
+        case .generated: return "생성 샷"
+        }
+    }
+    func includes(_ shot: SavedShot) -> Bool {
+        switch self {
+        case .all: return true
+        case .recorded: return !shot.isGenerated
+        case .generated: return shot.isGenerated
+        }
+    }
+}
+
 enum ShotSortOrder: String, CaseIterable, Identifiable {
     case newest
     case carryAscending
@@ -60,6 +79,7 @@ struct SavedShot: Codable, Identifiable, Hashable {
     var clubClassificationLocked: Bool?
     var shotType: String?
     var physicsEstimated: Bool?
+    var preserveRecordedValues: Bool?
     var carryDistance: Double?
     var totalDistance: Double?
     var ballSpeed: Double?
@@ -115,7 +135,7 @@ struct SavedShot: Codable, Identifiable, Hashable {
     }
 
     var clubLabel: String {
-        if isGenerated, let label = label, !label.isEmpty { return label }
+        if let label = label, !label.isEmpty { return label }
         if isPutt { return "퍼터" }
         switch club ?? "" {
         case "W1": return "드라이버"
@@ -167,6 +187,7 @@ struct SavedShot: Codable, Identifiable, Hashable {
         case "low_fade": return "낮은 페이드"
         case "pitch": return "피칭샷"
         case "chip": return "칩샷"
+        case "straight": return "스트레이트"
         default: return nil
         }
     }
@@ -221,7 +242,7 @@ enum ShotClubRules {
     static func apply(to shots: [SavedShot]) -> (shots: [SavedShot], count: Int) {
         var count = 0
         let result = shots.map { shot -> SavedShot in
-            guard shot.club == "W1", shot.clubClassificationLocked != true,
+            guard shot.club == "W1", shot.clubClassificationLocked != true, shot.preserveRecordedValues != true,
                   let yards = shot.carryYards, yards <= 240 + 1e-9 else { return shot }
             var changed = shot
             changed.originalClub = shot.originalClub ?? shot.club

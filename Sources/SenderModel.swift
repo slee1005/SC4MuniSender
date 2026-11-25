@@ -21,6 +21,12 @@ final class SenderModel: ObservableObject {
     @Published var shotSortOrder: ShotSortOrder {
         didSet { defaults.set(shotSortOrder.rawValue, forKey: "shotSortOrder") }
     }
+    @Published var shotRecordFilter: ShotRecordFilter {
+        didSet {
+            defaults.set(shotRecordFilter.rawValue, forKey: "shotRecordFilter")
+            if !filtered.contains(where: { $0.id == selectedID }) { selectedID = filtered.first?.id }
+        }
+    }
     @Published var sourceURL = ShotLoader.defaultURL
     @Published var fileStatus = ""
     @Published var message = "MuniGolf에서 연습장이나 코스를 열어 주세요."
@@ -39,6 +45,7 @@ final class SenderModel: ObservableObject {
         port = UserDefaults.standard.string(forKey: "gamePort") ?? "9210"
         distanceDisplayUnit = DistanceDisplayUnit(rawValue: UserDefaults.standard.string(forKey: "distanceDisplayUnit") ?? "m") ?? .meters
         shotSortOrder = ShotSortOrder(rawValue: UserDefaults.standard.string(forKey: "shotSortOrder") ?? "newest") ?? .newest
+        shotRecordFilter = ShotRecordFilter(rawValue: UserDefaults.standard.string(forKey: "shotRecordFilter") ?? "all") ?? .all
         if let saved = UserDefaults.standard.string(forKey: "senderDeviceID") { deviceID = saved }
         else {
             deviceID = "SC4-SavedShots-" + String(UUID().uuidString.prefix(8))
@@ -56,7 +63,8 @@ final class SenderModel: ObservableObject {
     }
     var filtered: [SavedShot] {
         let query = search.trimmingCharacters(in: .whitespacesAndNewlines)
-        let matches = query.isEmpty ? shots : shots.filter {
+        let categorized = shots.filter { shotRecordFilter.includes($0) }
+        let matches = query.isEmpty ? categorized : categorized.filter {
             [$0.clubLabel, $0.club ?? "", $0.dateLabel, $0.id, $0.importSourceFile ?? ""].joined(separator: " ")
                 .localizedCaseInsensitiveContains(query)
         }
@@ -112,7 +120,8 @@ final class SenderModel: ObservableObject {
             } catch { problems.append("발사각 조정: \(error.localizedDescription)") }
         }
         if !filtered.contains(where: { $0.id == selectedID }) { selectedID = filtered.first?.id }
-        fileStatus = "\(shots.count)개 샷 · 가져온 기록 \(imported.count)개"
+        let generated = shots.filter(\.isGenerated).count
+        fileStatus = "\(shots.count)개 샷 · 실제 기록 \(shots.count - generated)개 · 생성 \(generated)개"
         if !notes.isEmpty { fileStatus += " · " + notes.joined(separator: " · ") }
         if !problems.isEmpty {
             message = problems.joined(separator: " / ")

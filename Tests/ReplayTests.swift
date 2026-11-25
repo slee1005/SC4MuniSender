@@ -11,6 +11,7 @@ struct ReplayTests {
         try puttingMaker()
         try shotAdjustments()
         try curatedMetadata()
+        try recordedSeparation()
         try deletedShots()
         if CommandLine.arguments.contains("--network") { try await network() }
         print("PASS: SC4 units, packet validation, missing-value handling, original preservation, JSON framing" +
@@ -59,6 +60,35 @@ struct ReplayTests {
         let wire = try ShotInputs(shot: reopened).payload(deviceID: "CuratedTest", number: 1, carryYards: reopened.carryYards)
         try expect(wire.BallData?.SpinAxis == -6 && wire.BallData?.HLA == 1.5 && wire.BallData?.VLA == 10,
                    "saved practice shape is used when sending")
+    }
+
+    static func recordedSeparation() throws {
+        let csv = """
+        id,club,label,source,preserve_recorded_values,carry_distance,distance_unit,ball_speed,speed_unit,launch_angle_deg,launch_direction_deg,spin_rpm
+        recorded-fixture,W1,실제 · 드라이버 #1,history,true,150,yd,44.704,m/s,20,-1,3000
+        missing-fixture,LW,실제 · LW #1,live,true,10,yd,10,m/s,,0,9000
+        """
+        let recorded = try ShotImporter.load(Data(csv.utf8), filename: "recorded.csv").shots
+        var generated = recorded[0]
+        generated.source = "synthetic_fixture"
+        generated.isSynthetic = false
+        let all = recorded + [generated]
+        try expect(all.filter { ShotRecordFilter.all.includes($0) }.count == 3 &&
+                   all.filter { ShotRecordFilter.recorded.includes($0) }.count == 2 &&
+                   all.filter { ShotRecordFilter.generated.includes($0) }.count == 1,
+                   "recorded/generated filters respect synthetic source even when the flag is false")
+        try expect(recorded[0].clubLabel == "실제 · 드라이버 #1" && recorded[0].preserveRecordedValues == true,
+                   "recorded labels and value preservation survive CSV importing")
+        try expect(ShotClubRules.apply(to: recorded).count == 0 && recorded[0].club == "W1",
+                   "preserved recorded clubs bypass practice distance rules")
+        let change = LaunchAngleAdjustment(id: recorded[0].id, club: "W1", originalAngle: 20, adjustedAngle: 20.4, percentChange: 2)
+        let unchanged = LaunchAngleAdjustments.apply([change], to: recorded)
+        try expect(unchanged.count == 0 && unchanged.shots == recorded,
+                   "practice angle overrides cannot alter preserved recordings")
+        let reopened = try JSONDecoder().decode([SavedShot].self, from: JSONEncoder().encode(recorded))
+        try expect(reopened == recorded && reopened[1].launchAngle == nil &&
+                   reopened[1].missingMeasurement == "발사각 필요" && reopened[1].spinRPM == 9000,
+                   "recorded values and missing measurements remain intact after persistence")
     }
 
     static func shotAdjustments() throws {

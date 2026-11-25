@@ -37,7 +37,8 @@ enum LaunchAngleAdjustments {
         let byID = Dictionary(adjustments.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         var count = 0
         let result = shots.map { original -> SavedShot in
-            guard let change = byID[original.id], original.club == change.club, !original.isPutt,
+            guard original.preserveRecordedValues != true,
+                  let change = byID[original.id], original.club == change.club, !original.isPutt,
                   let angle = original.launchAngle, abs(angle - change.originalAngle) < 1e-9 else { return original }
             var adjusted = original
             adjusted.launchAngle = change.adjustedAngle

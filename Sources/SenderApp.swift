@@ -201,6 +201,13 @@ private struct SenderView: View {
                     .help("저장된 샷 새로고침")
                     .accessibilityLabel("샷 새로고침")
             }
+            Picker("기록 구분", selection: $model.shotRecordFilter) {
+                ForEach(ShotRecordFilter.allCases) { filter in
+                    Text("\(filter.title) \(model.shots.filter { filter.includes($0) }.count)").tag(filter)
+                }
+            }
+            .pickerStyle(.segmented)
+            .accessibilityLabel("실제 기록과 생성 샷 구분")
             HStack(spacing: 10) {
                 HStack(spacing: 7) {
                     Image(systemName: "magnifyingglass").foregroundStyle(muted)
@@ -254,7 +261,7 @@ private struct SenderView: View {
                     } else if shot.launchAngleIsEstimated == true {
                         Text("발사각 추정").font(.system(size: 10)).foregroundStyle(Color.orange)
                     } else {
-                        Text(shot.importSourceFile == nil ? "선택 가능" : "가져온 샷")
+                        Text("실제 기록")
                             .font(.system(size: 10)).foregroundStyle(muted)
                     }
                 }.width(min: 70, ideal: 78)
@@ -307,6 +314,15 @@ private struct SenderView: View {
                     .font(.system(size: 12)).foregroundStyle(muted)
                 if let type = selected.shotTypeLabel {
                     Text("샷 종류: \(type)").font(.system(size: 12, weight: .medium)).foregroundStyle(accent)
+                }
+                if !selected.isGenerated {
+                    Label("실제 기록", systemImage: "waveform.path.ecg")
+                        .font(.system(size: 11, weight: .semibold)).foregroundStyle(accent)
+                    if selected.preserveRecordedValues == true {
+                        Text("가져온 CSV의 수치를 보존합니다. 누락값과 기존 추정값은 해당 표시를 유지합니다.")
+                            .font(.system(size: 11)).foregroundStyle(muted)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
                 if !selected.isPutt, selected.rollMeters != nil {
                     Text("\(selected.physicsEstimated == true ? "모델 예상 " : "")롤 \(number(model.distanceDisplayUnit.roll(for: selected))) \(model.distanceDisplayUnit.rawValue) · 총거리 \(number(model.distanceDisplayUnit.total(for: selected))) \(model.distanceDisplayUnit.rawValue)")
