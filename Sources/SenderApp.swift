@@ -60,8 +60,8 @@ private struct SenderView: View {
             }
             Spacer()
             VStack(alignment: .leading, spacing: 4) {
-                Text("거리 단위").font(.system(size: 10)).foregroundStyle(muted)
-                Picker("거리 단위", selection: $model.distanceDisplayUnit) {
+                Text("캐리 단위").font(.system(size: 10)).foregroundStyle(muted)
+                Picker("캐리 단위", selection: $model.distanceDisplayUnit) {
                     ForEach(DistanceDisplayUnit.allCases) { unit in
                         Text(unit.title).tag(unit)
                     }
@@ -147,7 +147,7 @@ private struct SenderView: View {
                 .pickerStyle(.menu)
                 .frame(width: 170)
                 .accessibilityLabel("샷 정렬")
-                .help("캐리 거리의 짧은 순·긴 순 또는 최신순으로 정렬")
+                .help("일반 샷은 캐리, 퍼팅은 목표 굴림 거리로 정렬")
             }
             Table(model.filtered, selection: $model.selectedID) {
                 TableColumn("샷 시각") { shot in
@@ -156,9 +156,11 @@ private struct SenderView: View {
                 TableColumn("클럽") { shot in
                     Text(shot.clubLabel).font(.system(size: 11)).help(shot.clubLabel)
                 }.width(min: 80, ideal: 135)
-                TableColumn("캐리 · \(model.distanceDisplayUnit.rawValue)") { shot in
-                    Text(number(model.distanceDisplayUnit.carry(for: shot))).font(.system(size: 11)).monospacedDigit()
-                }.width(min: 60, ideal: 66)
+                TableColumn("거리") { shot in
+                    Text("\(number(model.distanceDisplayUnit.listDistance(for: shot))) \(model.distanceDisplayUnit.label(for: shot))")
+                        .font(.system(size: 11)).monospacedDigit()
+                        .help(shot.isPutt ? "퍼팅 목표 굴림 거리" : "캐리 거리")
+                }.width(min: 67, ideal: 80)
                 TableColumn("볼 · mph") { shot in
                     Text(number(shot.ballMPH)).font(.system(size: 11)).monospacedDigit()
                 }.width(min: 61, ideal: 67)
@@ -196,7 +198,7 @@ private struct SenderView: View {
             }
             HStack(spacing: 5) {
                 Image(systemName: "doc.text")
-                Text("Collector 원본 + 가져온 기록 · 원본 읽기 전용").lineLimit(1)
+                Text("거리: 일반 샷 캐리 · 퍼팅 굴림(ft) / 원본 읽기 전용").lineLimit(1)
             }
             .font(.system(size: 10)).foregroundStyle(muted)
             .help("Collector: \(model.sourceURL.path)\n가져온 기록: \(ShotImportStore.defaultURL.path)")
@@ -225,7 +227,7 @@ private struct SenderView: View {
                     Spacer()
                     Text(selected.dateLabel).font(.system(size: 11)).foregroundStyle(muted)
                 }
-                Text("캐리 \(number(model.distanceDisplayUnit.carry(for: selected))) \(model.distanceDisplayUnit.rawValue)")
+                Text("\(selected.isPutt ? "목표 굴림 거리" : "캐리") \(number(model.distanceDisplayUnit.listDistance(for: selected))) \(model.distanceDisplayUnit.label(for: selected))")
                     .font(.system(size: 12)).foregroundStyle(muted)
                 if let filename = selected.importSourceFile {
                     Label("가져온 파일: \(filename)", systemImage: "doc.badge.plus")
@@ -236,7 +238,7 @@ private struct SenderView: View {
                     Label("연습용 생성 데이터 · 실제 측정값 아님", systemImage: "wand.and.stars")
                         .font(.system(size: 11)).foregroundStyle(Color.orange)
                         .fixedSize(horizontal: false, vertical: true)
-                    if let height = selected.apexMeters {
+                    if !selected.isPutt, let height = selected.apexMeters {
                         Text("\(selected.source == "synthetic_lw_lob_ballistic" ? "계산상" : "참고") 최고 높이 \(number(height)) m")
                             .font(.system(size: 11)).foregroundStyle(muted)
                     }
@@ -248,6 +250,11 @@ private struct SenderView: View {
                 if selected.launchAngleIsEstimated == true {
                     Label("발사각은 캐리·최고 높이로 계산한 추정값입니다.", systemImage: "info.circle")
                         .font(.system(size: 11)).foregroundStyle(Color.orange)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if selected.isPutt {
+                    Label("MuniGolf에서 그린 위에 공을 두고 퍼터(PT)를 선택하세요.", systemImage: "flag")
+                        .font(.system(size: 12, weight: .medium)).foregroundStyle(accent)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 Divider()
@@ -266,8 +273,8 @@ private struct SenderView: View {
                     }
                 }
                 VStack(alignment: .leading, spacing: 5) {
-                    Label(selected.spinAxis == nil ? "스핀축은 SC4에 기록되지 않습니다." : "이 샷에 저장된 스핀축을 사용합니다.", systemImage: "info.circle")
-                    Text(selected.spinAxis == nil ? "기본 0°는 스핀에 의한 휨이 없는 가정입니다. 필요한 경우 값을 바꿔 주세요." : "스핀축 +는 오른쪽, −는 왼쪽 휨을 위한 값입니다. 생성 샷은 연습용 가정값이며 수정할 수 있습니다.")
+                    Label(selected.isPutt ? "퍼팅도 볼 속도와 출발 방향으로 전송합니다." : (selected.spinAxis == nil ? "스핀축은 SC4에 기록되지 않습니다." : "이 샷에 저장된 스핀축을 사용합니다."), systemImage: "info.circle")
+                    Text(selected.isPutt ? "목표 거리는 평지 가정의 연습값입니다. 그린 빠르기와 경사에 따라 볼 속도를 조절해 주세요." : (selected.spinAxis == nil ? "기본 0°는 스핀에 의한 휨이 없는 가정입니다. 필요한 경우 값을 바꿔 주세요." : "스핀축 +는 오른쪽, −는 왼쪽 휨을 위한 값입니다. 생성 샷은 연습용 가정값이며 수정할 수 있습니다."))
                 }
                 .font(.system(size: 11)).foregroundStyle(muted)
                 .padding(10)
@@ -282,7 +289,7 @@ private struct SenderView: View {
                 }
                 .scrollIndicators(.hidden)
                 Button { model.sendSelected() } label: {
-                    Label(model.isBusy ? "응답 기다리는 중…" : "이 샷을 MuniGolf로 전송", systemImage: "paperplane.fill")
+                    Label(model.isBusy ? "응답 기다리는 중…" : (selected.isPutt ? "이 퍼팅을 MuniGolf로 전송" : "이 샷을 MuniGolf로 전송"), systemImage: "paperplane.fill")
                         .font(.system(size: 13, weight: .semibold))
                         .frame(maxWidth: .infinity).padding(.vertical, 6)
                 }

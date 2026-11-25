@@ -7,10 +7,57 @@ struct ReplayTests {
         try core()
         try imports()
         try sorting()
+        try putting()
         if CommandLine.arguments.contains("--network") { try await network() }
         print("PASS: SC4 units, packet validation, missing-value handling, original preservation, JSON framing" +
-              ", CSV/JSON import, persistent deduplication, carry sorting" +
+              ", CSV/JSON import, persistent deduplication, carry sorting, putting in feet" +
               (CommandLine.arguments.contains("--network") ? ", TCP acknowledgement/rejection/no-retry" : ""))
+    }
+
+    static func putting() throws {
+        var putt = SavedShot(id: "putting-fixture")
+        putt.club = "PT"
+        putt.carryDistance = 0
+        putt.totalDistance = 3.048
+        putt.distanceUnit = "m"
+        putt.ballSpeed = 1.5
+        putt.speedUnit = "m/s"
+        putt.launchAngle = 0
+        putt.launchDirection = 0
+        putt.spinRPM = 0
+        putt.spinAxis = 0
+        try expect(putt.isPutt && putt.clubLabel == "퍼터" && putt.missingMeasurement == nil,
+                   "putter with zero launch/spin remains a valid selectable input")
+        for unit in DistanceDisplayUnit.allCases {
+            try expect(abs(unit.listDistance(for: putt)! - 10) < 1e-9 && unit.label(for: putt) == "ft",
+                       "putt target is always feet, independent of the full-shot carry unit")
+        }
+        let message = try ShotInputs(shot: putt).payload(deviceID: "PuttingTest", number: 5, carryYards: putt.carryYards)
+        let object = try JSONSerialization.jsonObject(with: message.encoded()) as! [String: Any]
+        let ball = object["BallData"] as! [String: Any]
+        try expect(ball["VLA"] as? Double == 0 && ball["HLA"] as? Double == 0 && ball["TotalSpin"] as? Double == 0,
+                   "putting zeros are sent as measurements, not treated as missing")
+        try expect(ball["CarryDistance"] == nil && message.ClubData == nil && !message.ShotDataOptions.ContainsClubData,
+                   "roll target is not sent as airborne carry or fabricated club data")
+        try expect(abs(message.BallData!.Speed - 3.355) < 0.001 && message.ShotDataOptions.IsMock,
+                   "low putt velocity converts to mph and remains a mock replay")
+        var fullShot = SavedShot(id: "iron-distance-fixture")
+        fullShot.club = "I7"
+        fullShot.carryDistance = 2
+        fullShot.distanceUnit = "m"
+        try expect(ShotSortOrder.carryAscending.sorted([putt, fullShot]).first?.club == "I7" &&
+                   ShotSortOrder.carryDescending.sorted([putt, fullShot]).first?.club == "PT",
+                   "putt sorts by rolling target, not its zero airborne carry")
+        var imperial = putt
+        imperial.distanceUnit = "ft"
+        imperial.totalDistance = 10
+        try expect(abs(imperial.puttFeet! - 10) < 1e-9, "native foot-unit putting records display correctly")
+        let reopened = try JSONDecoder().decode(SavedShot.self, from: JSONEncoder().encode(putt))
+        try expect(reopened.isPutt && abs(reopened.puttFeet! - 10) < 1e-9, "putt identity and target survive persistence")
+        let csv = "club,Carry(ft),Total(ft),Ball Speed(mph),Launch Angle(deg),Launch Direction(deg),Spin(rpm),Spin Axis(deg)\nPT,0,10,3.3,0,0,0,0"
+        let imported = try ShotImporter.load(Data(csv.utf8), filename: "putting.csv").shots[0]
+        try expect(imported.isPutt && abs(imported.puttFeet! - 10) < 1e-9 && imported.missingMeasurement == nil,
+                   "foot-unit putting CSV retains zero values and roll target")
     }
 
     static func sorting() throws {
@@ -253,6 +300,19 @@ struct ReplayTests {
             try expect(server.requestCount == 1, "no retry or duplicate transmission")
             server.stop()
         }
+        let server = try MockServer(mode: .accept)
+        let port = try await server.start()
+        var putting = ShotInputs()
+        putting.ballSpeed = "3.2"
+        putting.verticalAngle = "0"
+        putting.horizontalAngle = "0"
+        putting.totalSpin = "0"
+        let payload = try putting.payload(deviceID: "SyntheticPuttTCP", number: 9, carryYards: nil).encoded()
+        do {
+            _ = try await OpenConnectTransport.exchange(host: "127.0.0.1", port: port, data: payload, timeout: 2)
+            try expect(server.requestCount == 1 && server.requestData == payload, "low-speed zero-angle putt reaches isolated TCP server unchanged")
+            server.stop()
+        } catch { server.stop(); throw error }
     }
 
     static func putFloat(_ value: Float, into bytes: inout [UInt8], offset: Int) {
@@ -276,7 +336,9 @@ private final class MockServer {
     private let mode: Mode
     private var connections: [NWConnection] = []
     private var count = 0
+    private var lastPayload = Data()
     var requestCount: Int { queue.sync { count } }
+    var requestData: Data { queue.sync { lastPayload } }
 
     init(mode: Mode) throws {
         self.mode = mode
@@ -311,6 +373,7 @@ private final class MockServer {
             accumulated.append(data ?? Data())
             if accumulated.contains(10) {
                 count += 1
+                lastPayload = accumulated
                 if mode == .close { connection.cancel(); return }
                 let reply = mode == .accept
                     ? #"{"Code":201,"Player":{"Club":"I7"}}{"Code":200,"Message":"ok {\"shot\"}"}"#

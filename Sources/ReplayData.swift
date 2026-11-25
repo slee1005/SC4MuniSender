@@ -8,6 +8,10 @@ enum DistanceDisplayUnit: String, CaseIterable, Identifiable {
     func carry(for shot: SavedShot) -> Double? {
         self == .meters ? shot.carryMeters : shot.carryYards
     }
+    func listDistance(for shot: SavedShot) -> Double? {
+        shot.isPutt ? shot.puttFeet : carry(for: shot)
+    }
+    func label(for shot: SavedShot) -> String { shot.isPutt ? "ft" : rawValue }
 }
 
 enum ShotSortOrder: String, CaseIterable, Identifiable {
@@ -19,8 +23,8 @@ enum ShotSortOrder: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .newest: return "최신순"
-        case .carryAscending: return "캐리 짧은 순"
-        case .carryDescending: return "캐리 긴 순"
+        case .carryAscending: return "거리 짧은 순"
+        case .carryDescending: return "거리 긴 순"
         }
     }
 
@@ -28,7 +32,7 @@ enum ShotSortOrder: String, CaseIterable, Identifiable {
         shots.sorted { lhs, rhs in
             if self != .newest {
                 // Compare physical distances, so mixed meter/yard records sort consistently.
-                switch (lhs.carryMeters, rhs.carryMeters) {
+                switch (lhs.listDistanceMeters, rhs.listDistanceMeters) {
                 case let (a?, b?) where a != b:
                     return self == .carryAscending ? a < b : a > b
                 case (_?, nil): return true
@@ -80,6 +84,7 @@ struct SavedShot: Codable, Identifiable, Hashable {
     }
 
     var isGenerated: Bool { isSynthetic == true || source?.hasPrefix("synthetic") == true }
+    var isPutt: Bool { ["PT", "P", "PUTTER"].contains((club ?? "").trimmingCharacters(in: .whitespaces).uppercased()) }
 
     var sortDate: String { timestamp ?? receivedAt ?? "" }
     var dateLabel: String {
@@ -98,6 +103,7 @@ struct SavedShot: Codable, Identifiable, Hashable {
 
     var clubLabel: String {
         if isGenerated, let label = label, !label.isEmpty { return label }
+        if isPutt { return "퍼터" }
         switch club ?? "" {
         case "W1": return "드라이버"
         case "W3": return "3번 우드"
@@ -119,10 +125,22 @@ struct SavedShot: Codable, Identifiable, Hashable {
         switch (distanceUnit ?? "").lowercased() {
         case "m", "meter", "meters": return value / 0.9144
         case "yd", "yard", "yards": return value
+        case "ft", "foot", "feet": return value / 3
         default: return nil
         }
     }
     var carryMeters: Double? { carryYards.map { $0 * 0.9144 } }
+    var totalMeters: Double? {
+        guard let value = totalDistance, value.isFinite, value >= 0 else { return nil }
+        switch (distanceUnit ?? "").lowercased() {
+        case "m", "meter", "meters": return value
+        case "yd", "yard", "yards": return value * 0.9144
+        case "ft", "foot", "feet": return value * 0.3048
+        default: return nil
+        }
+    }
+    var puttFeet: Double? { totalMeters.map { $0 / 0.3048 } }
+    var listDistanceMeters: Double? { isPutt ? totalMeters : carryMeters }
     var apexMeters: Double? {
         guard let value = apex, value.isFinite, value >= 0 else { return nil }
         switch (distanceUnit ?? "").lowercased() {
@@ -221,9 +239,11 @@ struct ShotInputs {
     var totalSpin = ""
     var spinAxis = "0"
     var clubSpeed = ""
+    private var isPutt = false
 
     init() {}
     init(shot: SavedShot) {
+        isPutt = shot.isPutt
         ballSpeed = Self.text(shot.ballMPH)
         verticalAngle = Self.text(shot.launchAngle.flatMap { $0.isFinite && abs($0) <= 90 ? $0 : nil })
         horizontalAngle = Self.text(shot.resolvedDirection)
@@ -254,7 +274,8 @@ struct ShotInputs {
         let axis = try self.number(spinAxis, name: "스핀축", range: -90...90)
         let club = clubSpeed.trimmingCharacters(in: .whitespaces).isEmpty ? nil
             : try self.number(clubSpeed, name: "클럽 속도", range: 0.01...300)
-        let carry = carryYards.flatMap { $0.isFinite && $0 >= 0 ? $0 : nil }
+        // A putt's target is a roll distance, not airborne carry; let the game simulate it.
+        let carry = isPutt ? nil : carryYards.flatMap { $0.isFinite && $0 >= 0 ? $0 : nil }
         return OpenConnectMessage(DeviceID: deviceID, ShotNumber: number,
             BallData: BallPayload(Speed: ball, SpinAxis: axis, TotalSpin: spin, HLA: hla, VLA: vla, CarryDistance: carry),
             ClubData: club.map { ClubPayload(Speed: $0) },

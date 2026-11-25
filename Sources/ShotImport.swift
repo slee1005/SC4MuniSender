@@ -44,8 +44,8 @@ enum ShotImporter {
         }
         let ball = column(["ballspeedmph", "ballspeedms", "ballspeedkmh", "ballspeed"])
         let clubSpeed = column(["swingspeedmph", "swingspeedms", "swingspeedkmh", "clubspeed", "clubspeedmph", "clubspeedms", "clubspeedkmh"])
-        let carry = column(["carryyd", "carrym", "carrydistance", "carry"])
-        let total = column(["totalyd", "totalm", "totaldistance", "total"])
+        let carry = column(["carryyd", "carrym", "carryft", "carrydistance", "carry"])
+        let total = column(["totalyd", "totalm", "totalft", "totaldistance", "total"])
         let angle = column(["launchangledeg", "launchangle", "vla"])
         let direction = column(["launchdirectiondeg", "launchdirection", "hla"])
         let spin = column(["spinrpm", "spin", "totalspin"])
