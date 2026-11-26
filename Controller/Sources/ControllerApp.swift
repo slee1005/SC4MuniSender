@@ -84,7 +84,7 @@ let controllerMuted = Color(red:0.43,green:0.49,blue:0.46)
         pad.mouseDragged(with:event(.leftMouseDragged,0,-0.30,1.6))
         pad.mouseDragged(with:event(.leftMouseDragged,0,-0.08,1.67))
         pad.mouseUp(with:event(.leftMouseUp,0,0,1.7))
-        guard !model.capturing,model.swing?.contact == .center,model.canSend,!model.gameMode else {
+        guard !model.capturing,model.swing?.contact == .center,model.swing?.canSend == true,!model.attempted else {
             fputs("Native drag/release did not produce a practice shot\n",stderr);return false
         }
         let id=model.swing?.id
@@ -107,7 +107,7 @@ let controllerMuted = Color(red:0.43,green:0.49,blue:0.46)
         guard let window=window,let root=window.contentView,let bar=find(root) else {
             fputs("Native timing bar was not found\n",stderr);return false
         }
-        model.gameMode=false;model.timingPower = .p70
+        model.timingPower = .p70
         guard model.startTiming(direction:.leftToRight),let power=model.powerSession else { return false }
         RunLoop.main.run(until:Date().addingTimeInterval(0.04))
         guard window.firstResponder === bar else { fputs("Timing keyboard focus was not acquired\n",stderr);return false }
@@ -122,7 +122,7 @@ let controllerMuted = Color(red:0.43,green:0.49,blue:0.46)
         let click=NSEvent.mouseEvent(with:.leftMouseDown,location:bar.convert(NSPoint(x:bar.bounds.midX,y:bar.bounds.midY),to:nil),modifierFlags:[],timestamp:first.startedAt+first.duration*0.5,
             windowNumber:window.windowNumber,context:nil,eventNumber:2,clickCount:1,pressure:0.5)!
         bar.mouseDown(with:click)
-        guard model.timingResult?.grade == .perfect,!model.capturing,model.canSend,!model.attempted else {
+        guard model.timingResult?.grade == .perfect,!model.capturing,model.swing?.canSend == true,!model.attempted else {
             fputs("Space was not judged at the keyboard event timestamp\n",stderr);return false
         }
         let id=model.swing?.id
@@ -182,7 +182,7 @@ struct ControllerView:View {
                     .foregroundStyle(model.isError ? Color.orange:controllerGreen)
                 Text(model.message).font(.system(size:12)).foregroundStyle(model.isError ? Color.orange:controllerGreen)
                     .frame(maxWidth:.infinity,alignment:.leading).lineLimit(2)
-                Text("Muni Controller 1.2.1").font(.system(size:10)).foregroundStyle(controllerMuted)
+                Text("Muni Controller 1.2.2").font(.system(size:10)).foregroundStyle(controllerMuted)
             }.frame(height:34)
         }
         .padding(20).tint(controllerGreen)
@@ -239,17 +239,10 @@ struct ControllerView:View {
             Circle().fill(model.serverReady ? Color.green:Color.gray.opacity(0.4)).frame(width:7,height:7)
             Text(model.serverReady ? "응답 확인":"확인 전").font(.system(size:10)).foregroundStyle(controllerMuted)
             Spacer(minLength:5)
-            HStack(spacing:0) {
-                modeButton("연습 모드",enabled:!model.gameMode) { model.setGameMode(false) }
-                modeButton("게임 모드 · 자동 전송",enabled:model.gameMode) { model.setGameMode(true) }
-            }.padding(3).background(Color.black.opacity(0.04),in:RoundedRectangle(cornerRadius:9)).disabled(locked)
+            Label(model.serverReady ? "타점 확정 시 자동 전송":"미연결 · 전송 안 함",systemImage:model.serverReady ? "paperplane.fill":"circle")
+                .font(.system(size:11,weight:.semibold)).foregroundStyle(model.serverReady ? controllerGreen:controllerMuted)
+                .padding(10).background(controllerGreen.opacity(0.04),in:RoundedRectangle(cornerRadius:9))
         }.padding(13).background(.white,in:RoundedRectangle(cornerRadius:13))
-    }
-    private func modeButton(_ title:String,enabled:Bool,action:@escaping()->Void)->some View {
-        Button(action:action) { Text(title).font(.system(size:11,weight:.semibold)).padding(.horizontal,12).padding(.vertical,8)
-            .foregroundStyle(enabled ? Color.white:controllerMuted)
-            .background(enabled ? controllerGreen:Color.clear,in:RoundedRectangle(cornerRadius:7)) }
-            .buttonStyle(.plain)
     }
     private var clubPanel:some View {
         ScrollView {
@@ -306,7 +299,7 @@ struct ControllerView:View {
             HStack {
                 Text("스윙 패드").font(.system(size:16,weight:.semibold))
                 Spacer()
-                Text(model.capturing ? "스윙 중":model.gameMode ? "공을 맞히면 자동 전송":"연습 · 자동 전송 없음")
+                Text(model.capturing ? "스윙 중":model.serverReady ? "공을 맞히면 자동 전송":"미연결 · 전송 안 함")
                     .font(.system(size:11,weight:.medium)).foregroundStyle(controllerGreen)
                 Button { model.resetSwing() } label: { Image(systemName:"arrow.counterclockwise") }.disabled(model.busy).help("패드 초기화")
             }
@@ -412,11 +405,13 @@ struct ControllerView:View {
         }
         VStack(alignment:.leading,spacing:10) {
                 Divider()
-                Button { model.send() } label: {
-                    HStack { if model.busy { ProgressView().controlSize(.small) };Text(model.sent ? "전송 완료":model.attempted ? "전송 시도됨":"이번 스윙을 MuniGolf로 전송").font(.system(size:12,weight:.semibold)) }
-                        .frame(maxWidth:.infinity).padding(.vertical,8)
-                }.buttonStyle(.borderedProminent).disabled(!model.canSend)
-                    .keyboardShortcut(.return,modifiers:.command)
+                HStack(spacing:8) {
+                    if model.busy { ProgressView().controlSize(.small) }
+                    else { Image(systemName:model.sent ? "checkmark.circle.fill":"paperplane") }
+                    Text(model.transmissionStatus).font(.system(size:12,weight:.semibold))
+                        .fixedSize(horizontal:false,vertical:true)
+                }.foregroundStyle(model.isError ? Color.orange:controllerGreen)
+                    .frame(maxWidth:.infinity,alignment:.leading).padding(.vertical,8)
                 Text("조작에서 계산한 가상 컨택입니다. 게임에서도 같은 클럽을 선택하세요. 헛스윙은 전송하지 않습니다.")
                     .font(.system(size:10)).foregroundStyle(controllerMuted).fixedSize(horizontal:false,vertical:true)
             }.padding(.horizontal,15).padding(.bottom,15)

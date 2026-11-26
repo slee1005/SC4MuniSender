@@ -13,7 +13,6 @@ import SwiftUI
     @Published var aim = 0.0
     @Published var faceBias = 0.0
     @Published var sensitivity = 1.0
-    @Published var gameMode = false
     @Published var serverReady = false
     @Published var busy = false
     @Published var capturing = false
@@ -21,6 +20,7 @@ import SwiftUI
     @Published var swing: ControllerSwing?
     @Published var attempted = false
     @Published var sent = false
+    @Published private(set) var isExample = false
     @Published var message = "연습 모드입니다."
     @Published var isError = false
     @Published var resetToken = UUID()
@@ -103,7 +103,18 @@ import SwiftUI
     var configurationIssue: String? {
         do { _=try configuredClub();return nil } catch { return error.localizedDescription }
     }
-    var canSend: Bool { !busy && !capturing && !attempted && swing?.canSend == true }
+    var canSend: Bool { serverReady && !busy && !capturing && !attempted && !isExample && swing?.canSend == true }
+    var transmissionStatus: String {
+        if busy { return attempted ? "전송 중…" : "연결 확인 중…" }
+        if sent { return "전송 완료" }
+        if attempted { return "전송 응답 확인 필요" }
+        if isExample { return "연습 예시 · 전송 안 함" }
+        if let swing=swing {
+            if !swing.canSend { return "헛스윙 · 전송 안 함" }
+            return serverReady ? "이 스윙은 전송 안 됨 · 다음 스윙부터 자동 전송" : "미연결 · 전송 안 함"
+        }
+        return serverReady ? "페이스 타점 확정 시 자동 전송" : "연결 확인 후 자동 전송"
+    }
     private func configuredClub() throws -> ControllerClub {
         guard let distance=Double(distanceText),distance.isFinite,
               let angle=Double(angleText),let spin=Double(spinText) else {
@@ -137,13 +148,13 @@ import SwiftUI
         defaults?.set(distanceUnit.rawValue,forKey:"controllerDistanceUnit")
     }
     private func connectionChanged() {
-        serverReady=false;gameMode=false
+        serverReady=false
         defaults?.set(host,forKey:"gameHost");defaults?.set(port,forKey:"gamePort")
     }
     func resetSwing() {
         timingSession=nil;powerSession=nil;timingResult=nil;timingState = .ready;timingClub=nil;lastTimingInputAt=nil
         resetToken=UUID();capturing=false;captureClub=nil;livePower=0
-        swing=nil;attempted=false;sent=false
+        swing=nil;attempted=false;sent=false;isExample=false
     }
     func begin() -> Bool {
         guard inputMode == .pad,!busy,!capturing else { return false }
@@ -152,37 +163,41 @@ import SwiftUI
             if let index=clubs.firstIndex(where:{$0.id==club.id}) { clubs[index]=club };persist()
             captureClub=club;captureAim=aim;captureFace=faceBias;captureSensitivity=sensitivity
             captureShotType=shotType;captureAttackStyle=attackStyle
-            capturing=true;livePower=0;swing=nil;attempted=false;sent=false;isError=false
+            capturing=true;livePower=0;swing=nil;attempted=false;sent=false;isExample=false;isError=false
             message="뒤로 당겨 스윙 크기를 정한 뒤, 공 쪽으로 밀고 공 위에서 놓으세요."
             return true
         } catch {
-            swing=nil;attempted=false;sent=false;livePower=0
+            swing=nil;attempted=false;sent=false;isExample=false;livePower=0
             fail(error.localizedDescription);return false
         }
     }
     func update(depth: Double) { livePower=controllerClamp(depth/0.85*captureSensitivity,0,TimingPower.maximumFraction) }
     func cancel(_ reason: String) {
         timingSession=nil;powerSession=nil;timingResult=nil;timingState = .cancelled;timingClub=nil;lastTimingInputAt=nil
-        capturing=false;captureClub=nil;livePower=0;swing=nil;attempted=false;sent=false
+        capturing=false;captureClub=nil;livePower=0;swing=nil;attempted=false;sent=false;isExample=false
         message=reason;isError=false
     }
     func finish(_ points: [SwingPoint]) {
+        finish(points,isExample:false)
+    }
+    private func finish(_ points: [SwingPoint],isExample:Bool) {
         guard inputMode == .pad,capturing,let club=captureClub else { return }
         capturing=false;captureClub=nil
         do {
             let result=try ControllerSwingEngine.analyze(points,club:club,aim:captureAim,faceBias:captureFace,sensitivity:captureSensitivity)
                 .applying(type:captureShotType,attackStyle:captureAttackStyle)
             swing=result;livePower=result.power;attempted=false;sent=false;isError=false
+            self.isExample=isExample
             message=result.contact.note
             if !result.canSend { addHistory("\(result.club.name) · 헛스윙 · 전송 안 함") }
-            else if gameMode && serverReady { send() }
+            else { send() }
         } catch { livePower=0;fail(error.localizedDescription) }
     }
     func example(_ contact: SwingContact) {
         guard !busy,!capturing else { return }
         inputMode = .pad
-        gameMode=false;resetToken=UUID()
-        if begin() { finish(ControllerSwingEngine.example(contact)) }
+        resetToken=UUID()
+        if begin() { finish(ControllerSwingEngine.example(contact),isExample:true) }
         message="연습 예시 · \(contact.title). 게임에 전송하지 않았습니다."
     }
     @discardableResult func startTiming(at time:Double=ProcessInfo.processInfo.systemUptime,direction:TimingDirection?=nil)->Bool {
@@ -232,17 +247,11 @@ import SwiftUI
             capturing=false;captureClub=nil;timingState = .hit;timingResult=judgement
             swing=result;livePower=judgement.power.fraction;attempted=false;sent=false;isError=false
             message=String(format:"%@ · 중앙 오차 %.1f%% · %@",judgement.grade.title,judgement.error*100,judgement.sideLabel)
-            if gameMode && serverReady { send() }
+            send()
         } catch { cancel("타이밍 스윙을 취소했습니다.");fail(error.localizedDescription) }
     }
     func cancelTimingForFocusLoss() {
         if timingActive { cancel("포커스를 벗어나 타이밍 스윙을 취소했습니다.") }
-    }
-    func setGameMode(_ enabled: Bool) {
-        guard !busy,!capturing else { return }
-        if enabled && !serverReady { fail("먼저 ‘연결 확인’을 눌러 주세요.");return }
-        gameMode=enabled;isError=false
-            message=enabled ? "게임 모드 · 다음 스윙부터 타격하면 자동 전송합니다." : "연습 모드 · 스윙을 해도 게임에 자동 전송하지 않습니다."
     }
     func checkConnection() {
         guard !busy,!capturing else { return }
@@ -255,11 +264,11 @@ import SwiftUI
             defer { busy=false }
             do {
                 _=try await exchange(host,port,OpenConnectMessage.heartbeat(deviceID:deviceID).encoded())
-                serverReady=true;message="서버 응답을 확인했습니다. 게임 모드에서 스윙하거나 이번 스윙을 직접 전송하세요."
-            } catch { serverReady=false;gameMode=false;fail(error.localizedDescription) }
+                serverReady=true;message="연결 완료 · 다음 스윙부터 페이스 타점을 확정하면 자동 전송합니다."
+            } catch { serverReady=false;fail(error.localizedDescription) }
         }
     }
-    func send() {
+    private func send() {
         guard canSend,let swing=swing else { return }
         guard let port=UInt16(port),port>0,!host.trimmingCharacters(in:.whitespaces).isEmpty else {
             fail("게임 주소와 포트를 확인해 주세요.");return
@@ -278,7 +287,7 @@ import SwiftUI
                     sent=true;serverReady=true;message="전송 완료 · \(swing.club.name) · \(swing.resultLabel)"
                     addHistory("#\(next) · \(swing.club.name) · \(swing.resultLabel) · 전송 완료")
                 } catch {
-                    serverReady=false;gameMode=false;fail(error.localizedDescription)
+                    serverReady=false;fail(error.localizedDescription)
                     addHistory("#\(next) · \(swing.club.name) · 응답 확인 필요")
                 }
             }
