@@ -7,27 +7,29 @@ enum ControllerInputMode:String,CaseIterable,Identifiable {
 }
 
 struct TimingPower:Equatable,Hashable,CaseIterable,Identifiable {
+    static let minimumFraction=0.01,maximumFraction=1.1
     let fraction:Double
     var id:Double { fraction }
     var rawValue:Int { Int((fraction*100).rounded()) }
     var label:String { ShotInputs.text(fraction*100)+"%" }
     init?(fraction:Double) {
-        guard fraction.isFinite,(0.01...1).contains(fraction) else { return nil }
+        guard fraction.isFinite,(Self.minimumFraction...Self.maximumFraction).contains(fraction) else { return nil }
         self.fraction=fraction
     }
     init?(rawValue:Int) { self.init(fraction:Double(rawValue)/100) }
     static let p30=Self(fraction:0.3)!,p50=Self(fraction:0.5)!,p70=Self(fraction:0.7)!,p100=Self(fraction:1)!
-    static let allCases:[Self]=[.p30,.p50,.p70,.p100]
+    static let p110=Self(fraction:1.1)!
+    static let allCases:[Self]=[.p30,.p50,.p70,.p100,.p110]
     var speed:Double {
-        let points:[(Double,Double)]=[(0.01,0.2),(0.3,0.5),(0.5,0.75),(0.7,1),(1,1.5)]
+        let points:[(Double,Double)]=[(0.01,0.2),(0.3,0.5),(0.5,0.75),(0.7,1),(1,1.5),(1.1,1.75)]
         for i in 1..<points.count where fraction<=points[i].0 {
             let a=points[i-1],b=points[i]
             return a.1+(b.1-a.1)*(fraction-a.0)/(b.0-a.0)
         }
-        return 1.5
+        return 1.75
     }
-    var difficulty:String { fraction<=0.3 ? "쉬움":fraction<=0.5 ? "보통":fraction<=0.7 ? "어려움":"매우 어려움" }
-    var speedLabel:String { fraction<=0.3 ? "SLOW":fraction<=0.5 ? "NORMAL":fraction<=0.7 ? "FAST":"VERY FAST" }
+    var difficulty:String { fraction>1 ? "오버스윙":fraction<=0.3 ? "쉬움":fraction<=0.5 ? "보통":fraction<=0.7 ? "어려움":"매우 어려움" }
+    var speedLabel:String { fraction>1 ? "OVER SWING":fraction<=0.3 ? "SLOW":fraction<=0.5 ? "NORMAL":fraction<=0.7 ? "FAST":"VERY FAST" }
 }
 
 enum TimingDirection:String,CaseIterable {
@@ -53,9 +55,15 @@ struct PowerMeterSession {
     let startedAt:Double
     static let duration=2.0
     func position(at time:Double)->Double { SwingBarWave.sample(elapsed:time-startedAt,duration:Self.duration).position }
+    func fraction(at time:Double)->Double {
+        TimingPower.minimumFraction+position(at:time)*(TimingPower.maximumFraction-TimingPower.minimumFraction)
+    }
+    static func position(for fraction:Double)->Double {
+        controllerClamp((fraction-TimingPower.minimumFraction)/(TimingPower.maximumFraction-TimingPower.minimumFraction),0,1)
+    }
     func capture(at time:Double) throws->TimingPower {
         guard time.isFinite,startedAt.isFinite,time>=startedAt else { throw ReplayError.input("강도 바를 다시 시작해 주세요.") }
-        let fraction=controllerClamp((position(at:time)*1000).rounded()/1000,0.01,1)
+        let fraction=controllerClamp((fraction(at:time)*1000).rounded()/1000,TimingPower.minimumFraction,TimingPower.maximumFraction)
         return TimingPower(fraction:fraction)!
     }
 }

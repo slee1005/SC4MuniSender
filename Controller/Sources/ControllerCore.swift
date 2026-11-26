@@ -176,7 +176,7 @@ enum ControllerSwingEngine {
         }
         let backTime = max(0.03,bottom.time-start.time), downTime = max(0.025,end.time-bottom.time)
         let tempo = controllerClamp(0.85 + 0.15 * (backTime/downTime/2.5),0.80,1.08)
-        let power = controllerClamp(depth/0.85*sensitivity*tempo,0.025,1.15)
+        let power = controllerClamp(depth/0.85*sensitivity*tempo,0.025,TimingPower.maximumFraction)
         let before = points[(bottomIndex..<points.count-1).last(where: {
             hypot(end.x-points[$0].x,end.y-points[$0].y) >= 0.025
         }) ?? bottomIndex]
@@ -202,7 +202,7 @@ enum ControllerSwingEngine {
         let movementScale = pow(power,0.72)
         let ball = club.fullBallMPH*movementScale*efficiency
         let clubSpeed = club.fullBallMPH/club.smash*movementScale
-        let angle = club.isPutter ? 0 : controllerClamp(club.launchAngle*(0.65+0.35*sqrt(min(power,1.15)))*loftScale,1,70)
+        let angle = club.isPutter ? 0 : controllerClamp(club.launchAngle*(0.65+0.35*sqrt(min(power,TimingPower.maximumFraction)))*loftScale,1,70)
         let axis = club.isPutter ? 0 : controllerClamp((face-path)*2+gear,-40,40)
         let spin = club.isPutter ? 0 : club.spin*pow(power,0.60)*spinScale
         let direction = controllerClamp(0.8*face+0.2*path,-45,45)

@@ -23,7 +23,7 @@ struct TimingSwingPanel:View {
                 Text(model.timingState.title).font(.system(size:10,weight:.bold)).foregroundStyle(controllerGreen)
                     .padding(.horizontal,9).padding(.vertical,5).background(controllerGreen.opacity(0.06),in:Capsule())
             }
-            Text("1 · 강도 확정   →   2 · 클럽 페이스 타점 확정").font(.system(size:11)).foregroundStyle(controllerMuted)
+            Text("1 · 강도 1~110% 확정   →   2 · 힘이 클수록 빨라지는 페이스 타점 바").font(.system(size:11)).foregroundStyle(controllerMuted)
             TimingBar(model:model).frame(minHeight:300,maxHeight:.infinity)
             HStack(spacing:12) {
                 Button {
@@ -124,18 +124,26 @@ final class TimingBarView:NSView {
         NSColor(calibratedRed:0.045,green:0.22,blue:0.18,alpha:1).setFill();bounds.fill()
         let width=bounds.width,height=bounds.height
         let now=ProcessInfo.processInfo.systemUptime
-        let powerValue=state == .settingPower ? max(0.01,powerSession?.position(at:now) ?? 0):power.fraction
+        let powerValue=state == .settingPower ? (powerSession?.fraction(at:now) ?? TimingPower.minimumFraction):power.fraction
+        let powerPosition=PowerMeterSession.position(for:powerValue)
         let activePower=state == .settingPower ? (TimingPower(fraction:powerValue) ?? power):(session?.power ?? power)
         let faded=NSColor.white.withAlphaComponent(0.58)
-        text(state == .settingPower ? "1 · SHOT POWER":state == .ready || state == .cancelled ? "SHOT POWER · READY":"SHOT POWER LOCKED",rect:NSRect(x:0,y:16,width:width,height:15),size:10,color:faded)
-        text(String(format:"%.1f%%",powerValue*100),rect:NSRect(x:0,y:34,width:width,height:44),size:35,weight:.semibold)
+        let powerTitle=state == .settingPower ? "1 · SHOT POWER":state == .ready || state == .cancelled ? "SHOT POWER · READY":"SHOT POWER LOCKED"
+        text(powerTitle+(powerValue>1 ? " · OVER SWING":""),rect:NSRect(x:0,y:16,width:width,height:15),size:10,color:faded)
+        text(String(format:"%.1f%%",powerValue*100),rect:NSRect(x:0,y:34,width:width,height:44),size:35,weight:.semibold,color:powerValue>1 ? .systemOrange:.white)
         let powerBar=NSRect(x:32,y:max(93,height*0.30),width:max(1,width-64),height:19)
         NSColor.white.withAlphaComponent(0.1).setFill();NSBezierPath(roundedRect:powerBar,xRadius:9,yRadius:9).fill()
+        let hundred=powerBar.minX+powerBar.width*CGFloat(PowerMeterSession.position(for:1))
+        NSColor.systemOrange.withAlphaComponent(0.25).setFill()
+        NSBezierPath(rect:NSRect(x:hundred,y:powerBar.minY,width:powerBar.maxX-hundred,height:powerBar.height)).fill()
         NSColor(calibratedRed:0.90,green:0.74,blue:0.34,alpha:0.6).setFill()
-        NSBezierPath(roundedRect:NSRect(x:powerBar.minX,y:powerBar.minY,width:powerBar.width*CGFloat(powerValue),height:powerBar.height),xRadius:9,yRadius:9).fill()
-        NSColor.white.setFill();NSBezierPath(ovalIn:NSRect(x:powerBar.minX+powerBar.width*CGFloat(powerValue)-5,y:powerBar.midY-5,width:10,height:10)).fill()
+        NSBezierPath(roundedRect:NSRect(x:powerBar.minX,y:powerBar.minY,width:powerBar.width*CGFloat(powerPosition),height:powerBar.height),xRadius:9,yRadius:9).fill()
+        NSColor.white.setFill();NSBezierPath(ovalIn:NSRect(x:powerBar.minX+powerBar.width*CGFloat(powerPosition)-5,y:powerBar.midY-5,width:10,height:10)).fill()
+        let tick=NSBezierPath();tick.move(to:NSPoint(x:hundred,y:powerBar.minY-4));tick.line(to:NSPoint(x:hundred,y:powerBar.maxY+4))
+        NSColor.systemOrange.setStroke();tick.lineWidth=1;tick.stroke()
+        text("100%",rect:NSRect(x:hundred-24,y:powerBar.minY-18,width:48,height:14),size:9,color:.systemOrange)
         text("1%",rect:NSRect(x:powerBar.minX,y:powerBar.maxY+8,width:50,height:14),size:9,color:faded,alignment:.left)
-        text("100%",rect:NSRect(x:powerBar.maxX-50,y:powerBar.maxY+8,width:50,height:14),size:9,color:faded,alignment:.right)
+        text("110%",rect:NSRect(x:powerBar.maxX-50,y:powerBar.maxY+8,width:50,height:14),size:9,color:faded,alignment:.right)
         let bar=NSRect(x:32,y:max(178,height*0.64),width:max(1,width-64),height:24)
         text("2 · FACE CONTACT",rect:NSRect(x:bar.minX,y:bar.minY-25,width:140,height:15),size:9,color:faded,alignment:.left)
         text("SWEET SPOT",rect:NSRect(x:bar.midX-75,y:bar.minY-25,width:150,height:16),size:10,color:NSColor(calibratedRed:0.78,green:0.93,blue:0.62,alpha:1))

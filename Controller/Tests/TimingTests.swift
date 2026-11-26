@@ -2,16 +2,26 @@ import Foundation
 
 extension ControllerTests {
     static func timingCore() throws {
-        let speeds:[Double]=[0.5,0.75,1,1.5]
+        let speeds:[Double]=[0.5,0.75,1,1.5,1.75]
         let thresholds:[(Double,TimingGrade)]=[(0,.perfect),(0.02,.perfect),(0.020001,.excellent),(0.05,.excellent),
             (0.050001,.good),(0.1,.good),(0.100001,.fair),(0.199999,.fair),(0.2,.miss),(0.5,.miss)]
         let meter=PowerMeterSession(id:UUID(),startedAt:1000)
         for leg in [0.0,1.0,2.0,99.0,100.0] {
             let progress=leg.truncatingRemainder(dividingBy:2)==0 ? 0.683:0.317
             let power=try meter.capture(at:1000+PowerMeterSession.duration*(leg+progress))
-            try expectController(abs(power.fraction-0.683)<1e-9,"power continuously captured on either sweep")
+            try expectController(abs(power.fraction-0.754)<1e-9,"power continuously captured on either sweep")
         }
         try expectController(tryPower(meter,1000)==0.01,"power minimum produces a valid shot")
+        try expectController(tryPower(meter,1000+PowerMeterSession.duration)==1.1,"power peak reaches 110 percent")
+        try expectController(TimingPower(fraction:1.101)==nil,"power above 110 percent rejected")
+        let oversized=try ControllerSwingEngine.analyze(ControllerSwingEngine.example(.center,depth:1.2),club:ControllerClub.defaults[0])
+        try expectController(oversized.power==1.1,"trackpad overswing shares the 110 percent cap")
+        var previousSpeed=0.0
+        for step in 10...1100 {
+            let power=TimingPower(fraction:Double(step)/1000)!
+            try expectController(power.speed>previousSpeed,"face bar speeds up continuously across the full power range")
+            previousSpeed=power.speed
+        }
         try expectController(TimingPower(fraction:.nan)==nil && TimingPower(fraction:0)==nil,"invalid strengths rejected")
         for (index,power) in TimingPower.allCases.enumerated() {
             try expectController(abs(power.speed-speeds[index])<1e-12,"continuous speed retains reference anchors")
@@ -81,7 +91,7 @@ extension ControllerTests {
         try expectController(model.timingState == .settingPower && model.timingSession==nil && !model.canSend,"power must be chosen first")
         model.timingSpace(at:meter.startedAt+PowerMeterSession.duration*0.683)
         let face=model.timingSession!
-        try expectController(abs(face.power.fraction-0.683)<1e-9 && model.timingState == .running,"first input captures continuous power")
+        try expectController(abs(face.power.fraction-0.754)<1e-9 && model.timingState == .running,"first input captures continuous power")
         model.timingSpace(at:face.startedAt+0.02)
         try expectController(model.swing==nil && model.capturing,"near-simultaneous second input is ignored")
         model.timingSpace(at:face.startedAt+face.duration*100.5)
@@ -95,6 +105,7 @@ extension ControllerTests {
         try expectController(model.startTiming(at:now-2,direction:.rightToLeft),"new game power stage")
         model.timingSpace(at:now)
         let active=model.timingSession!
+        try expectController(active.power.fraction==1.1 && abs(active.power.speed-1.75)<1e-9,"110 percent locks into the faster face meter")
         try await Task.sleep(nanoseconds:1_300_000_000)
         try expectController(model.timingActive && model.swing==nil,"contact meter does not expire at the first edge")
         model.timingSpace(at:active.startedAt+active.duration*2.5);model.send()

@@ -160,7 +160,7 @@ import SwiftUI
             fail(error.localizedDescription);return false
         }
     }
-    func update(depth: Double) { livePower=controllerClamp(depth/0.85*captureSensitivity,0,1.15) }
+    func update(depth: Double) { livePower=controllerClamp(depth/0.85*captureSensitivity,0,TimingPower.maximumFraction) }
     func cancel(_ reason: String) {
         timingSession=nil;powerSession=nil;timingResult=nil;timingState = .cancelled;timingClub=nil;lastTimingInputAt=nil
         capturing=false;captureClub=nil;livePower=0;swing=nil;attempted=false;sent=false

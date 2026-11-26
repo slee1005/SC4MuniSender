@@ -25,7 +25,8 @@ let controllerMuted = Color(red:0.43,green:0.49,blue:0.46)
             delegate.model.message="START → Space/클릭으로 강도 확정 → Space/클릭으로 페이스 타점 확정"
             if CommandLine.arguments.contains("--preview-stinger") { delegate.model.shotType = .stinger;delegate.model.attackStyle = .down }
             if CommandLine.arguments.contains("--preview-result"),delegate.model.startTiming(direction:.leftToRight),let power=delegate.model.powerSession {
-                delegate.model.timingSpace(at:power.startedAt+PowerMeterSession.duration*0.7)
+                let target=CommandLine.arguments.contains("--preview-over") ? TimingPower.maximumFraction:0.7
+                delegate.model.timingSpace(at:power.startedAt+PowerMeterSession.duration*PowerMeterSession.position(for:target))
                 if let session=delegate.model.timingSession { delegate.model.hitTiming(at:session.startedAt+session.duration*0.5) }
             }
             RunLoop.main.run(until:Date().addingTimeInterval(0.1))
@@ -115,7 +116,7 @@ let controllerMuted = Color(red:0.43,green:0.49,blue:0.46)
                 context:nil,characters:code==49 ? " ":"\u{1b}",charactersIgnoringModifiers:code==49 ? " ":"\u{1b}",isARepeat:repeated,keyCode:code)!
         }
         bar.keyDown(with:key(49,power.startedAt+PowerMeterSession.duration*0.7))
-        guard let first=model.timingSession,model.timingState == .running,abs(model.timingPower.fraction-0.7)<0.001 else { return false }
+        guard let first=model.timingSession,model.timingState == .running,abs(model.timingPower.fraction-0.773)<0.001 else { return false }
         bar.keyDown(with:key(49,first.startedAt+0.01,true))
         guard model.timingState == .running,model.swing==nil else { return false }
         let click=NSEvent.mouseEvent(with:.leftMouseDown,location:bar.convert(NSPoint(x:bar.bounds.midX,y:bar.bounds.midY),to:nil),modifierFlags:[],timestamp:first.startedAt+first.duration*0.5,
@@ -135,7 +136,7 @@ let controllerMuted = Color(red:0.43,green:0.49,blue:0.46)
         let powerClick=NSEvent.mouseEvent(with:.leftMouseDown,location:click.locationInWindow,modifierFlags:[],timestamp:second.startedAt+PowerMeterSession.duration*0.5,
             windowNumber:window.windowNumber,context:nil,eventNumber:4,clickCount:1,pressure:0.5)!
         bar.mouseDown(with:powerClick)
-        guard let returning=model.timingSession,abs(returning.power.fraction-0.5)<0.001 else { return false }
+        guard let returning=model.timingSession,abs(returning.power.fraction-0.555)<0.001 else { return false }
         bar.keyDown(with:key(49,returning.startedAt+returning.duration*1.5))
         guard model.timingResult?.grade == .perfect,!model.capturing else { return false }
         guard model.startTiming(),let third=model.powerSession else { return false }
@@ -181,7 +182,7 @@ struct ControllerView:View {
                     .foregroundStyle(model.isError ? Color.orange:controllerGreen)
                 Text(model.message).font(.system(size:12)).foregroundStyle(model.isError ? Color.orange:controllerGreen)
                     .frame(maxWidth:.infinity,alignment:.leading).lineLimit(2)
-                Text("Muni Controller 1.2").font(.system(size:10)).foregroundStyle(controllerMuted)
+                Text("Muni Controller 1.2.1").font(.system(size:10)).foregroundStyle(controllerMuted)
             }.frame(height:34)
         }
         .padding(20).tint(controllerGreen)
