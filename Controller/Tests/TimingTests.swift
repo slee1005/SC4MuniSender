@@ -2,102 +2,112 @@ import Foundation
 
 extension ControllerTests {
     static func timingCore() throws {
-        let speeds:[Double]=[0.5,0.75,1,1.5],durations:[Double]=[3.6,2.4,1.8,1.2]
-        let thresholds:[(Double,TimingGrade)]=[(0,.perfect),(0.02,.perfect),(0.020001,.excellent),
-            (0.05,.excellent),(0.050001,.good),(0.1,.good),(0.100001,.fair),(0.199999,.fair),(0.2,.miss),(0.5,.miss)]
-        for (error,grade) in thresholds {
-            try expectController(TimingGrade.classify(error:error)==grade,"exact judgement boundary \(error)")
+        let speeds:[Double]=[0.5,0.75,1,1.5]
+        let thresholds:[(Double,TimingGrade)]=[(0,.perfect),(0.02,.perfect),(0.020001,.excellent),(0.05,.excellent),
+            (0.050001,.good),(0.1,.good),(0.100001,.fair),(0.199999,.fair),(0.2,.miss),(0.5,.miss)]
+        let meter=PowerMeterSession(id:UUID(),startedAt:1000)
+        for leg in [0.0,1.0,2.0,99.0,100.0] {
+            let progress=leg.truncatingRemainder(dividingBy:2)==0 ? 0.683:0.317
+            let power=try meter.capture(at:1000+PowerMeterSession.duration*(leg+progress))
+            try expectController(abs(power.fraction-0.683)<1e-9,"power continuously captured on either sweep")
         }
+        try expectController(tryPower(meter,1000)==0.01,"power minimum produces a valid shot")
+        try expectController(TimingPower(fraction:.nan)==nil && TimingPower(fraction:0)==nil,"invalid strengths rejected")
         for (index,power) in TimingPower.allCases.enumerated() {
-            try expectController(power.speed==speeds[index],"specified power-speed mapping")
+            try expectController(abs(power.speed-speeds[index])<1e-12,"continuous speed retains reference anchors")
             for direction in TimingDirection.allCases {
                 let session=TimingSession(id:UUID(),power:power,direction:direction,startedAt:1000)
-                try expectController(abs(session.duration-durations[index])<1e-12,"one-pass speed")
-                try expectController(session.position(at:999)==direction.startPosition && session.position(at:1009)==direction.endPosition,"bar endpoint clamping")
+                try expectController(abs(session.position(at:1000+session.duration*2)-direction.startPosition)<1e-9,"returns to start after a round trip")
+                try expectController(abs(session.position(at:1000+session.duration*1.5)-0.5)<1e-9,"center on the reverse pass")
                 for (error,grade) in thresholds {
-                    let time=session.startedAt+session.duration*(0.5+error)
-                    let judgement=try session.judge(at:time)
-                    try expectController(judgement.grade==grade,"fixed grade band for every speed and direction")
+                    for leg in [0.0,1.0,100.0] {
+                        let j=try session.judge(at:1000+session.duration*(leg+0.5+error))
+                        try expectController(j.grade==grade,"grade bands unchanged after repeated sweeps")
+                    }
                 }
                 for club in ControllerClub.defaults {
-                    for progress in [0.05,0.25,0.425,0.465,0.49,0.5,0.51,0.535,0.575,0.75,0.95] {
-                        let judgement=try session.judge(at:session.startedAt+session.duration*progress)
-                        let shot=TimingSwingEngine.shot(judgement,club:club,aim:0,faceBias:0)
-                        let object=try JSONSerialization.jsonObject(with:shot.message(deviceID:"TimingTest",number:7).encoded()) as! [String:Any]
-                        let ball=object["BallData"] as! [String:Any]
-                        try expectController(shot.canSend && shot.power==power.fraction && shot.timing?.grade==judgement.grade,"power and grade retained in valid shot")
-                        try expectController(ball["CarryDistance"]==nil && object["TimingGrade"]==nil,"wire uses supported ball/club data only")
-                        if club.isPutter { try expectController(shot.spin==0 && shot.launchAngle==0 && shot.spinAxis==0,"timed putt remains a roll") }
-                        if abs(progress-0.5)<1e-10 {
-                            try expectController(abs(shot.referenceDistance-club.baseDistance*power.fraction)<1e-8 && shot.launchDirection==0,"Perfect combines exact selected power and club anchor")
-                        }
+                    for p in [0.02,0.25,0.465,0.5,0.535,0.75,0.98] {
+                        let j=try session.judge(at:1000+session.duration*p)
+                        let shot=TimingSwingEngine.shot(j,club:club,aim:0,faceBias:0)
+                        _=try shot.message(deviceID:"TimingTest",number:7).encoded()
+                        try expectController(shot.canSend && shot.power==power.fraction,"valid continuous-power contact payload")
+                        if club.isPutter { try expectController(shot.spin==0 && shot.launchAngle==0,"putt remains a roll") }
                     }
                 }
             }
         }
-        let a=TimingSession(id:UUID(),power:.p70,direction:.leftToRight,startedAt:10)
-        let b=TimingSession(id:UUID(),power:.p70,direction:.rightToLeft,startedAt:10)
-        let earlyA=try a.judge(at:10+a.duration*0.42),earlyB=try b.judge(at:10+b.duration*0.42)
+        let left=TimingSession(id:UUID(),power:.p70,direction:.leftToRight,startedAt:1000)
+        let reverse=TimingSession(id:UUID(),power:.p70,direction:.rightToLeft,startedAt:1000)
         let club=ControllerClub.defaults[0]
-        let shotA=TimingSwingEngine.shot(earlyA,club:club,aim:0,faceBias:0)
-        let shotB=TimingSwingEngine.shot(earlyB,club:club,aim:0,faceBias:0)
-        let late=TimingSwingEngine.shot(try a.judge(at:10+a.duration*0.58),club:club,aim:0,faceBias:0)
-        try expectController(earlyA.position<0.5 && earlyB.position>0.5 && earlyA.grade==earlyB.grade,"random direction mirrors motion without changing accuracy rules")
-        try expectController(shotA.ballMPH==shotB.ballMPH && shotA.spinAxis==shotB.spinAxis && shotA.launchDirection==shotB.launchDirection,"early/late shape is independent of bar direction")
-        try expectController(shotA.launchDirection>0 && shotA.spinAxis>0 && late.launchDirection<0 && late.spinAxis<0,"early fade and late draw")
-        let miss=TimingSwingEngine.shot(try a.judge(at:10+a.duration*0.85),club:club,aim:0,faceBias:0)
-        try expectController(miss.canSend && miss.timing?.grade == .miss && miss.referenceDistance<shotA.referenceDistance,"pressed Miss is a reduced mishit rather than a whiff")
-        try refuseController("pre-start hit rejected") { _=try a.judge(at:9.9) }
-        try refuseController("late hit rejected") { _=try a.judge(at:a.endsAt+0.001) }
-        try refuseController("NaN clock rejected") { _=try a.judge(at:.nan) }
+        let heel=TimingSwingEngine.shot(try left.judge(at:1000+left.duration*0.02),club:club,aim:0,faceBias:0)
+        let heelReverse=TimingSwingEngine.shot(try reverse.judge(at:1000+reverse.duration*0.98),club:club,aim:0,faceBias:0)
+        let toe=TimingSwingEngine.shot(try left.judge(at:1000+left.duration*0.98),club:club,aim:0,faceBias:0)
+        try expectController(heel.horizontalImpactMM<0 && heel.spinAxis>30 && heel.timing!.sideLabel.contains("슬라이스"),"extreme heel means slice")
+        try expectController(toe.horizontalImpactMM>0 && toe.spinAxis < -30 && toe.timing!.sideLabel.contains("훅"),"extreme toe means hook")
+        try expectController(heel.spinAxis==heelReverse.spinAxis && heel.horizontalImpactMM==heelReverse.horizontalImpactMM,"face position, not motion direction, sets contact")
+        let centered=try left.judge(at:1000+left.duration*0.5)
+        for club in ControllerClub.defaults {
+            let base=TimingSwingEngine.shot(centered,club:club,aim:0,faceBias:0)
+            for type in ControllerShotType.allCases {
+                for attack in ControllerAttackStyle.allCases {
+                    let shot=base.applying(type:type,attackStyle:attack)
+                    let object=try JSONSerialization.jsonObject(with:shot.message(deviceID:"Styles",number:1).encoded()) as! [String:Any]
+                    let data=object["ClubData"] as! [String:Double]
+                    try expectController(data["AngleOfAttack"]==shot.attack,"blow direction included in club delivery")
+                    if club.isPutter { try expectController(shot.spin==0 && shot.shotType == .straight && shot.attackStyle == .neutral,"putt ignores spin/style modifiers") }
+                }
+            }
+            if !club.isPutter {
+                let down=base.applying(type:.straight,attackStyle:.down),up=base.applying(type:.straight,attackStyle:.up)
+                try expectController(down.spin>base.spin && up.spin<base.spin && down.attack<0 && up.attack>0,"down/up changes spin and attack direction")
+                let low=base.applying(type:.low,attackStyle:.neutral),high=base.applying(type:.high,attackStyle:.neutral),stinger=base.applying(type:.stinger,attackStyle:.neutral)
+                try expectController(stinger.launchAngle<low.launchAngle && low.launchAngle<base.launchAngle && high.launchAngle>base.launchAngle,"low/high/stinger alter actual launch")
+                try expectController(base.applying(type:.draw,attackStyle:.neutral).spinAxis<0 && base.applying(type:.fade,attackStyle:.neutral).spinAxis>0,"draw/fade spin signs")
+            }
+        }
+        try expectController(heel.applying(type:.draw,attackStyle:.down).spinAxis>0 && toe.applying(type:.fade,attackStyle:.up).spinAxis<0,"extreme contact dominates intended curve")
+        try refuseController("pre-start hit rejected") { _=try left.judge(at:999) }
+        try refuseController("NaN clock rejected") { _=try left.judge(at:.nan) }
     }
+    static func tryPower(_ meter:PowerMeterSession,_ time:Double)->Double { (try? meter.capture(at:time).fraction) ?? -1 }
 
     @MainActor static func timingModel() async throws {
         let probe=ControllerProbe()
         let model=ControllerModel(preview:true,exchange:{ try await probe.exchange($0,$1,$2) })
-        model.inputMode = .timing;model.timingPower = .p70
+        model.inputMode = .timing;model.shotType = .lowDraw;model.attackStyle = .down
         model.randomTimingDirection=false
-        try expectController(model.startTiming(),"timing starts in practice")
-        let first=model.timingSession!
-        try expectController(first.direction == .leftToRight && model.capturing && !model.canSend,"fixed direction and active guard")
-        model.hitTiming(at:first.startedAt+first.duration*0.5)
-        let shotID=model.swing?.id
-        model.hitTiming(at:first.startedAt+first.duration*0.6)
-        let noShots=try await probe.objects()
-        try expectController(model.timingState == .hit && model.timingResult?.grade == .perfect && model.swing?.id==shotID && noShots.isEmpty,"practice hit freezes once without automatic network traffic")
-        try expectController(model.startTiming(direction:.rightToLeft),"start next round")
-        let second=model.timingSession!
-        model.expireTiming(sessionID:first.id,at:first.endsAt+1)
-        try expectController(model.timingActive && model.timingSession?.id==second.id,"stale timeout cannot expire next round")
-        model.cancelTimingForFocusLoss()
-        try expectController(!model.capturing && model.swing==nil && model.timingState == .cancelled,"focus loss cancels without a pending shot")
+        try expectController(model.startTiming(),"starts power meter")
+        let meter=model.powerSession!
+        try expectController(model.timingState == .settingPower && model.timingSession==nil && !model.canSend,"power must be chosen first")
+        model.timingSpace(at:meter.startedAt+PowerMeterSession.duration*0.683)
+        let face=model.timingSession!
+        try expectController(abs(face.power.fraction-0.683)<1e-9 && model.timingState == .running,"first input captures continuous power")
+        model.timingSpace(at:face.startedAt+0.02)
+        try expectController(model.swing==nil && model.capturing,"near-simultaneous second input is ignored")
+        model.timingSpace(at:face.startedAt+face.duration*100.5)
+        let id=model.swing?.id
+        model.hitTiming(at:face.startedAt+face.duration*101.5)
+        let none=try await probe.objects()
+        try expectController(model.swing?.id==id && model.timingResult?.grade == .perfect && none.isEmpty,"many passes allowed, one practice result")
+        try expectController(model.swing?.shotType == .lowDraw && model.swing?.attackStyle == .down,"selected style and blow applied")
         model.checkConnection();try await settle(model);model.setGameMode(true)
-        try expectController(model.startTiming(direction:.leftToRight),"game timing start")
-        let game=model.timingSession!
-        model.hitTiming(at:game.startedAt+game.duration*0.75);model.send()
+        let now=ProcessInfo.processInfo.systemUptime
+        try expectController(model.startTiming(at:now-2,direction:.rightToLeft),"new game power stage")
+        model.timingSpace(at:now)
+        let active=model.timingSession!
+        try await Task.sleep(nanoseconds:1_300_000_000)
+        try expectController(model.timingActive && model.swing==nil,"contact meter does not expire at the first edge")
+        model.timingSpace(at:active.startedAt+active.duration*2.5);model.send()
         try await settle(model)
         let messages=try await probe.objects()
-        try expectController(messages.count==2 && model.sent && model.timingResult?.grade == .miss,"one heartbeat and exactly one reduced Miss shot")
-        model.timingPower = .p100
-        try expectController(model.startTiming(direction:.rightToLeft),"automatic timeout start")
-        let timeout=model.timingSession!
-        for _ in 0..<150 {
-            if !model.timingActive { break }
-            try await Task.sleep(nanoseconds:10_000_000)
-        }
-        let afterTimeout=try await probe.objects()
-        try expectController(model.timingState == .expired && !model.canSend && afterTimeout.count==2,"deadline with no Space causes no shot")
-        // Simulate a keyboard event queued before deadline but delivered after
-        // the main actor processed its timeout. Event time is authoritative.
-        model.timingSpace(at:timeout.startedAt+timeout.duration*0.5)
-        try await settle(model)
-        let recovered=try await probe.objects()
-        try expectController(model.timingResult?.grade == .perfect && recovered.count==3,"queued pre-deadline Space judged at actual timestamp")
-        model.setGameMode(false)
-        try expectController(model.startTiming(),"round before switching input")
+        try expectController(messages.count==2 && model.sent,"one heartbeat and exactly one two-stage game shot")
+        try expectController(model.startTiming(),"next round")
+        model.cancelTimingForFocusLoss()
+        try expectController(!model.capturing && model.powerSession==nil && model.timingSession==nil,"focus loss cancels either stage")
+        try expectController(model.startTiming(),"round before mode change")
         model.inputMode = .pad
-        try expectController(!model.capturing && model.timingSession==nil && model.swing==nil,"switching mode cancels active round")
+        try expectController(!model.capturing && model.powerSession==nil,"mode switch cancels power meter")
         model.inputMode = .timing;model.distanceText="NaN"
-        try expectController(!model.startTiming() && model.isError && !model.canSend,"invalid anchor blocks timing too")
+        try expectController(!model.startTiming() && model.isError,"invalid settings block two-stage start")
     }
 }

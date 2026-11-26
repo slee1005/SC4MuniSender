@@ -30,7 +30,7 @@ actor ControllerProbe {
             try timingCore()
             try await timingModel()
             if CommandLine.arguments.contains("--network") { try await network() }
-            print("PASS: 14 clubs; 6 gesture contacts; power/timing speed and grade boundaries; both bar directions; keyboard event timestamps; timeout/cancel/stale-round guards; one-shot sending; finite ball/club payloads" + (CommandLine.arguments.contains("--network") ? "; isolated loopback acknowledgement":""))
+            print("PASS: 14 clubs; 6 gesture contacts; endless two-stage meters; continuous power; heel/sweet-spot/toe and slice/hook signs; 10 shot types; down/up spin; cancel/debounce/one-shot guards; valid payloads" + (CommandLine.arguments.contains("--network") ? "; isolated loopback acknowledgement":""))
         } catch { fputs("FAIL: \(error)\n",stderr);exit(1) }
     }
     static func core() throws {

@@ -103,8 +103,10 @@ struct ControllerSwing: Identifiable {
     /// Reference distance from the controller's power curve, not a calibrated game result.
     let referenceDistance: Double
     let timing: TimingJudgement?
+    let shotType:ControllerShotType
+    let attackStyle:ControllerAttackStyle
     var canSend: Bool { contact != .miss && ballMPH >= 0.01 }
-    var resultLabel:String { timing.map { "\($0.grade.title) · \(contact.title)" } ?? contact.title }
+    var resultLabel:String { "\(shotType.title) · \(attackStyle.title) · " + (timing.map { "\($0.grade.title) · \($0.sideLabel)" } ?? contact.title) }
 
     func message(deviceID: String, number: Int) throws -> ControllerMessage {
         guard canSend, number > 0 else { throw ReplayError.input("헛스윙은 샷으로 전송하지 않습니다.") }
@@ -117,7 +119,7 @@ struct ControllerSwing: Identifiable {
             BallData: BallPayload(Speed: ballMPH, SpinAxis: spinAxis, TotalSpin: spin,
                                   HLA: launchDirection, VLA: launchAngle, CarryDistance: nil),
             ClubData: ControllerClubPayload(Speed: clubMPH, AngleOfAttack: attack,
-                FaceToTarget: faceDegrees, Loft: club.loft, Path: pathDegrees, SpeedAtImpact: clubMPH,
+                FaceToTarget: faceDegrees, Loft: controllerClamp(club.loft+launchAngle-club.launchAngle,0,80), Path: pathDegrees, SpeedAtImpact: clubMPH,
                 VerticalFaceImpact: verticalImpactMM, HorizontalFaceImpact: horizontalImpactMM),
             ShotDataOptions: ShotOptions(ContainsBallData: true, ContainsClubData: true,
                 LaunchMonitorIsReady: true, LaunchMonitorBallDetected: true, IsHeartBeat: false))
@@ -214,7 +216,7 @@ enum ControllerSwingEngine {
             verticalImpactMM: r(-controllerClamp(end.y/0.55,-1,1)*(club.isWood ? 22:16)),
             ballMPH: r(ball), clubMPH: r(clubSpeed), launchAngle: r(angle), launchDirection: r(direction),
             spin: spin.rounded(), spinAxis: r(axis), attack: r(controllerClamp(club.attack+end.y*10,-15,12)),
-            referenceDistance: distance,timing:nil)
+            referenceDistance: distance,timing:nil,shotType:.straight,attackStyle:.neutral)
     }
 
     static func example(_ contact: SwingContact, depth: Double = 0.72) -> [SwingPoint] {

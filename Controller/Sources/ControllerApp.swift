@@ -19,11 +19,14 @@ let controllerMuted = Color(red:0.43,green:0.49,blue:0.46)
             delegate.model.resetSwing()
             RunLoop.main.run(until:Date().addingTimeInterval(0.1))
             guard delegate.verifyTiming() else { exit(1) }
+            delegate.model.timingPower = .p70
             delegate.model.resetSwing()
             delegate.model.randomTimingDirection=true
-            delegate.model.message="연습 모드 · 파워 선택 → START → 중앙에서 SPACE"
-            if CommandLine.arguments.contains("--preview-result"),delegate.model.startTiming(direction:.leftToRight),let session=delegate.model.timingSession {
-                delegate.model.hitTiming(at:session.startedAt+session.duration*0.5)
+            delegate.model.message="START → Space/클릭으로 강도 확정 → Space/클릭으로 페이스 타점 확정"
+            if CommandLine.arguments.contains("--preview-stinger") { delegate.model.shotType = .stinger;delegate.model.attackStyle = .down }
+            if CommandLine.arguments.contains("--preview-result"),delegate.model.startTiming(direction:.leftToRight),let power=delegate.model.powerSession {
+                delegate.model.timingSpace(at:power.startedAt+PowerMeterSession.duration*0.7)
+                if let session=delegate.model.timingSession { delegate.model.hitTiming(at:session.startedAt+session.duration*0.5) }
             }
             RunLoop.main.run(until:Date().addingTimeInterval(0.1))
             if let view=delegate.window?.contentView,
@@ -104,25 +107,42 @@ let controllerMuted = Color(red:0.43,green:0.49,blue:0.46)
             fputs("Native timing bar was not found\n",stderr);return false
         }
         model.gameMode=false;model.timingPower = .p70
-        guard model.startTiming(direction:.leftToRight),let first=model.timingSession else { return false }
+        guard model.startTiming(direction:.leftToRight),let power=model.powerSession else { return false }
         RunLoop.main.run(until:Date().addingTimeInterval(0.04))
         guard window.firstResponder === bar else { fputs("Timing keyboard focus was not acquired\n",stderr);return false }
         func key(_ code:UInt16,_ timestamp:Double,_ repeated:Bool=false)->NSEvent {
             NSEvent.keyEvent(with:.keyDown,location:.zero,modifierFlags:[],timestamp:timestamp,windowNumber:window.windowNumber,
                 context:nil,characters:code==49 ? " ":"\u{1b}",charactersIgnoringModifiers:code==49 ? " ":"\u{1b}",isARepeat:repeated,keyCode:code)!
         }
-        bar.keyDown(with:key(49,first.startedAt+first.duration*0.5))
+        bar.keyDown(with:key(49,power.startedAt+PowerMeterSession.duration*0.7))
+        guard let first=model.timingSession,model.timingState == .running,abs(model.timingPower.fraction-0.7)<0.001 else { return false }
+        bar.keyDown(with:key(49,first.startedAt+0.01,true))
+        guard model.timingState == .running,model.swing==nil else { return false }
+        let click=NSEvent.mouseEvent(with:.leftMouseDown,location:bar.convert(NSPoint(x:bar.bounds.midX,y:bar.bounds.midY),to:nil),modifierFlags:[],timestamp:first.startedAt+first.duration*0.5,
+            windowNumber:window.windowNumber,context:nil,eventNumber:2,clickCount:1,pressure:0.5)!
+        bar.mouseDown(with:click)
         guard model.timingResult?.grade == .perfect,!model.capturing,model.canSend,!model.attempted else {
             fputs("Space was not judged at the keyboard event timestamp\n",stderr);return false
         }
         let id=model.swing?.id
         bar.keyDown(with:key(49,first.startedAt+first.duration*0.5+0.01,true))
         guard model.swing?.id==id,!model.capturing else { fputs("Held Space created another round\n",stderr);return false }
-        guard model.startTiming(direction:.rightToLeft),let second=model.timingSession else { return false }
+        let doubleClick=NSEvent.mouseEvent(with:.leftMouseDown,location:click.locationInWindow,modifierFlags:[],timestamp:click.timestamp+0.02,
+            windowNumber:window.windowNumber,context:nil,eventNumber:3,clickCount:2,pressure:0.5)!
+        bar.mouseDown(with:doubleClick)
+        guard model.swing?.id==id,!model.capturing else { return false }
+        guard model.startTiming(direction:.rightToLeft),let second=model.powerSession else { return false }
+        let powerClick=NSEvent.mouseEvent(with:.leftMouseDown,location:click.locationInWindow,modifierFlags:[],timestamp:second.startedAt+PowerMeterSession.duration*0.5,
+            windowNumber:window.windowNumber,context:nil,eventNumber:4,clickCount:1,pressure:0.5)!
+        bar.mouseDown(with:powerClick)
+        guard let returning=model.timingSession,abs(returning.power.fraction-0.5)<0.001 else { return false }
+        bar.keyDown(with:key(49,returning.startedAt+returning.duration*1.5))
+        guard model.timingResult?.grade == .perfect,!model.capturing else { return false }
+        guard model.startTiming(),let third=model.powerSession else { return false }
         RunLoop.main.run(until:Date().addingTimeInterval(0.04))
-        bar.keyDown(with:key(53,second.startedAt+0.05))
+        bar.keyDown(with:key(53,third.startedAt+0.05))
         guard !model.capturing,model.swing==nil,model.timingSession==nil else { fputs("Timing Escape did not cancel\n",stderr);return false }
-        print("PASS: native timing focus, Space event timestamps, held-key suppression and Escape; practice only")
+        print("PASS: native two-stage keyboard/click flow, captured power, repeat/double-click suppression and Escape; practice only")
         return true
     }
     private func makeMenu() {
@@ -150,6 +170,7 @@ struct ControllerView:View {
                     Picker("스윙 조작",selection:$model.inputMode) {
                         ForEach(ControllerInputMode.allCases) { mode in Text(mode.title).tag(mode) }
                     }.pickerStyle(.segmented).disabled(locked)
+                    shotControls
                     if model.inputMode == .timing { TimingSwingPanel(model:model) }
                     else { padPanel }
                 }.frame(maxWidth:.infinity,maxHeight:.infinity)
@@ -160,7 +181,7 @@ struct ControllerView:View {
                     .foregroundStyle(model.isError ? Color.orange:controllerGreen)
                 Text(model.message).font(.system(size:12)).foregroundStyle(model.isError ? Color.orange:controllerGreen)
                     .frame(maxWidth:.infinity,alignment:.leading).lineLimit(2)
-                Text("Muni Controller 1.1").font(.system(size:10)).foregroundStyle(controllerMuted)
+                Text("Muni Controller 1.2").font(.system(size:10)).foregroundStyle(controllerMuted)
             }.frame(height:34)
         }
         .padding(20).tint(controllerGreen)
@@ -173,7 +194,7 @@ struct ControllerView:View {
                 .frame(width:48,height:48).background(controllerGreen,in:RoundedRectangle(cornerRadius:14))
             VStack(alignment:.leading,spacing:3) {
                 Text("Muni Controller").font(.system(size:26,weight:.semibold,design:.rounded)).foregroundStyle(controllerGreen)
-                Text(model.inputMode == .timing ? "파워 선택 · START · 중앙에서 SPACE":"당기고 · 밀고 · 공 위에서 놓기").font(.system(size:12)).foregroundStyle(controllerMuted)
+                Text(model.inputMode == .timing ? "강도 바 정지 · 페이스 타점 정지 · Space / 클릭":"당기고 · 밀고 · 공 위에서 놓기").font(.system(size:12)).foregroundStyle(controllerMuted)
             }
             Spacer()
             Picker("거리 단위",selection:$model.distanceUnit) {
@@ -184,6 +205,24 @@ struct ControllerView:View {
                 .foregroundStyle(controllerGreen).padding(10)
                 .background(controllerGreen.opacity(0.06),in:Capsule())
         }
+    }
+    private var shotControls:some View {
+        VStack(alignment:.leading,spacing:5) {
+            if model.selectedClub.isPutter {
+                Text("퍼팅 · 스트레이트 / 스핀 0").font(.system(size:12,weight:.medium)).foregroundStyle(controllerGreen)
+            } else {
+                HStack(spacing:12) {
+                    Picker("샷 타입",selection:$model.shotType) {
+                        ForEach(ControllerShotType.allCases) { type in Text(type.title).tag(type) }
+                    }.frame(maxWidth:.infinity)
+                    Picker("블로",selection:$model.attackStyle) {
+                        ForEach(ControllerAttackStyle.allCases) { attack in Text(attack.title).tag(attack) }
+                    }.frame(maxWidth:.infinity)
+                }.font(.system(size:12)).disabled(locked)
+                Text(model.attackStyle.note+" · 선택한 샷 타입과 함께 적용").font(.system(size:10)).foregroundStyle(controllerMuted)
+            }
+        }.padding(.horizontal,12).padding(.vertical,8).frame(maxWidth:.infinity,alignment:.leading)
+            .background(.white,in:RoundedRectangle(cornerRadius:10))
     }
     private var connection:some View {
         HStack(spacing:10) {
@@ -273,7 +312,7 @@ struct ControllerView:View {
             SwingPad(enabled:!model.busy,resetToken:model.resetToken,trajectory:model.swing?.points ?? [],
                      onBegin:{ model.begin() },onUpdate:{ model.update(depth:$0) },
                      onFinish:{ model.finish($0) },onCancel:{ model.cancel($0) })
-                .frame(minHeight:340,maxHeight:.infinity)
+                .frame(minHeight:280,maxHeight:.infinity)
             HStack { Text("스윙 크기").font(.system(size:12));Spacer();Text("\(number(model.livePower*100,0))%").font(.system(size:17,weight:.semibold,design:.rounded)).monospacedDigit().foregroundStyle(controllerGreen) }
             GeometryReader { geo in
                 Capsule().fill(controllerGreen.opacity(0.08))
@@ -311,11 +350,12 @@ struct ControllerView:View {
                             .padding(.horizontal,9).padding(.vertical,6)
                             .background((swing.contact == .center ? controllerGreen:Color.orange).opacity(0.08),in:Capsule())
                     }
+                    Text("\(swing.shotType.title) · \(swing.attackStyle.title)").font(.system(size:11,weight:.medium)).foregroundStyle(controllerGreen)
                     if let timing=swing.timing {
                         VStack(alignment:.leading,spacing:5) {
-                            Text("\(timing.power.rawValue)% · \(timing.grade.description)").font(.system(size:13,weight:.semibold))
+                            Text("\(timing.power.label) · \(timing.sideLabel)").font(.system(size:13,weight:.semibold))
                             Text("중앙 오차 \(number(timing.error*100,1))% · \(timing.sideLabel)")
-                            Text("타이밍 \(number(timing.milliseconds,0))ms · \(timing.direction.title)")
+                            Text("클럽 페이스의 힐 / 중앙 / 토 기준 · \(timing.direction.title)")
                         }.font(.system(size:10)).foregroundStyle(timing.grade.color)
                     }
                     FaceImpactView(swing:swing).frame(height:143)
@@ -331,19 +371,19 @@ struct ControllerView:View {
                     }
                     Group {
                         metric("볼 속도",number(swing.ballMPH,1)+" mph")
-                        metric("클럽 속도",number(swing.clubMPH,1)+" mph")
-                        metric("출발 방향",number(swing.launchDirection,1)+"°")
-                        metric("발사각",number(swing.launchAngle,1)+"°")
                         metric("스핀",number(swing.spin,0)+" rpm")
                         metric("스핀축",number(swing.spinAxis,1)+"°")
+                        metric("발사각",number(swing.launchAngle,1)+"°")
+                        metric("출발 방향",number(swing.launchDirection,1)+"°")
+                        metric("클럽 속도",number(swing.clubMPH,1)+" mph")
                     }
                     Text(swing.timing.map { "\($0.grade.description). 정확도와 파워를 볼 속도·방향·스핀·타점에 반영합니다." } ?? swing.contact.note)
                         .font(.system(size:11)).foregroundStyle(controllerMuted).fixedSize(horizontal:false,vertical:true)
                 } else {
                     if model.inputMode == .timing {
                         VStack(alignment:.leading,spacing:13) {
-                            Text(model.timingState == .expired ? "Miss · 키 입력 없음":"TARGET: CENTER").font(.system(size:18,weight:.semibold,design:.rounded)).foregroundStyle(controllerGreen)
-                            Text("바가 중앙에 도달하는 순간 SPACE를 누르세요.").font(.system(size:12)).foregroundStyle(controllerMuted)
+                            Text("POWER → FACE CONTACT").font(.system(size:16,weight:.semibold,design:.rounded)).foregroundStyle(controllerGreen)
+                            Text("1차 Space/클릭으로 강도, 2차 Space/클릭으로 클럽 페이스 타점을 정합니다.").font(.system(size:12)).foregroundStyle(controllerMuted)
                             Divider()
                             ForEach(TimingGrade.allCases,id:\.self) { grade in
                                 HStack {
@@ -354,7 +394,7 @@ struct ControllerView:View {
                             }
                             Text("중앙과의 거리는 바 전체 너비 기준입니다. Perfect 구간은 모든 파워에서 동일합니다.")
                                 .font(.system(size:10)).foregroundStyle(controllerMuted)
-                            Text("20% 이상은 큰 미스샷입니다. 끝까지 누르지 않으면 헛스윙으로 처리하며 전송하지 않습니다.")
+                            Text("왼쪽은 힐, 오른쪽은 토입니다. 극힐은 슬라이스, 극토는 훅입니다. 입력 전까지 바가 계속 왕복합니다.")
                                 .font(.system(size:10)).foregroundStyle(controllerMuted)
                         }
                     } else {
