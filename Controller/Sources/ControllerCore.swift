@@ -34,7 +34,7 @@ struct ControllerClub: Codable, Identifiable, Equatable {
         make("SW", "SW 샌드 웨지", 85, 70, 40, 9500, 1.12, 56, -5),
         make("LW", "LW 로브 웨지", 65, 58, 44, 9000, 1.04, 60, -5),
         make("PT", "퍼터", 20, 6.25, 0, 0, 1.0, 3, 0),
-    ]
+    ].map { CallawayClubCatalog.applyingDefaults(to:$0) }
     private static func make(_ id: String, _ name: String, _ distance: Double, _ mph: Double,
                              _ angle: Double, _ spin: Double, _ smash: Double, _ loft: Double, _ attack: Double) -> Self {
         Self(id: id, name: name, referenceDistance: distance, referenceBallMPH: mph,
@@ -45,7 +45,8 @@ struct ControllerClub: Codable, Identifiable, Equatable {
         guard values.allSatisfy(\.isFinite), referenceDistance > 0, (0.1...600).contains(baseDistance),
               (0.1...220).contains(referenceBallMPH), (0.5...1.6).contains(smash),
               (0...70).contains(launchAngle), (0...20000).contains(spin),
-              isPutter || launchAngle >= 1 else { throw ReplayError.input("클럽 기준 거리·발사각·스핀을 확인해 주세요.") }
+              (0...70).contains(loft), isPutter || loft>=5,
+              isPutter || launchAngle >= 1 else { throw ReplayError.input("클럽 기준 거리·로프트·스핀을 확인해 주세요.") }
         guard fullBallMPH.isFinite, (0.01...270).contains(fullBallMPH) else {
             throw ReplayError.input("기준 거리가 너무 큽니다. 클럽 기준 거리를 줄여 주세요.")
         }
@@ -202,7 +203,7 @@ enum ControllerSwingEngine {
         let movementScale = pow(power,0.72)
         let ball = club.fullBallMPH*movementScale*efficiency
         let clubSpeed = club.fullBallMPH/club.smash*movementScale
-        let angle = club.isPutter ? 0 : controllerClamp(club.launchAngle*(0.65+0.35*sqrt(min(power,TimingPower.maximumFraction)))*loftScale,1,70)
+        let angle = club.isPutter ? 0 : controllerClamp(ClubFlight.launch(club:club,power:power)*loftScale,1,70)
         let axis = club.isPutter ? 0 : controllerClamp((face-path)*2+gear,-40,40)
         let spin = club.isPutter ? 0 : club.spin*pow(power,0.60)*spinScale
         let direction = controllerClamp(0.8*face+0.2*path,-45,45)

@@ -29,6 +29,10 @@ actor ControllerProbe {
             try await model()
             try timingCore()
             try await timingModel()
+            try clubFlight()
+            try sc4Receiver()
+            try await sc4Model()
+            try clubMigration()
             if CommandLine.arguments.contains("--network") { try await network() }
             print("PASS: 14 clubs; 6 gesture contacts; endless two-stage meters; continuous power; heel/sweet-spot/toe and slice/hook signs; 10 shot types; down/up spin; cancel/debounce/one-shot guards; valid payloads" + (CommandLine.arguments.contains("--network") ? "; isolated loopback acknowledgement":""))
         } catch { fputs("FAIL: \(error)\n",stderr);exit(1) }
@@ -61,6 +65,7 @@ actor ControllerProbe {
             let small=try ControllerSwingEngine.analyze(ControllerSwingEngine.example(.center,depth:0.15),club:club)
             let full=try ControllerSwingEngine.analyze(ControllerSwingEngine.example(.center,depth:0.85),club:club)
             try expectController(small.ballMPH<full.ballMPH && small.referenceDistance<full.referenceDistance,"continuous power controls distance")
+            try expectController(club.isPutter ? small.apexMeters==0 && full.apexMeters==0 : small.apexMeters<full.apexMeters,"trackpad force also controls reference flight height")
             let fat=try ControllerSwingEngine.analyze(ControllerSwingEngine.example(.fat),club:club)
             let clean=try ControllerSwingEngine.analyze(ControllerSwingEngine.example(.center),club:club)
             try expectController(fat.ballMPH<clean.ballMPH,"contact changes actual transmitted ball speed")

@@ -29,6 +29,7 @@ let controllerMuted = Color(red:0.43,green:0.49,blue:0.46)
                 delegate.model.timingSpace(at:power.startedAt+PowerMeterSession.duration*PowerMeterSession.position(for:target))
                 if let session=delegate.model.timingSession { delegate.model.hitTiming(at:session.startedAt+session.duration*0.5) }
             }
+            if CommandLine.arguments.contains("--preview-sc4") { delegate.model.inputMode = .swingCaddie }
             RunLoop.main.run(until:Date().addingTimeInterval(0.1))
             if let view=delegate.window?.contentView,
                let bitmap=view.bitmapImageRepForCachingDisplay(in:view.bounds) {
@@ -171,18 +172,21 @@ struct ControllerView:View {
                     Picker("스윙 조작",selection:$model.inputMode) {
                         ForEach(ControllerInputMode.allCases) { mode in Text(mode.title).tag(mode) }
                     }.pickerStyle(.segmented).disabled(locked)
-                    shotControls
+                    if model.inputMode != .swingCaddie { shotControls }
                     if model.inputMode == .timing { TimingSwingPanel(model:model) }
-                    else { padPanel }
+                    else if model.inputMode == .pad { padPanel }
+                    else { SwingCaddiePanel(bluetooth:model.swingCaddie) }
                 }.frame(maxWidth:.infinity,maxHeight:.infinity)
-                resultPanel.frame(width:292)
+                if model.inputMode == .swingCaddie {
+                    SwingCaddieResultPanel(model:model,bluetooth:model.swingCaddie).frame(width:292)
+                } else { resultPanel.frame(width:292) }
             }
             HStack(alignment:.center,spacing:10) {
                 Image(systemName:model.isError ? "exclamationmark.circle.fill":"info.circle")
                     .foregroundStyle(model.isError ? Color.orange:controllerGreen)
                 Text(model.message).font(.system(size:12)).foregroundStyle(model.isError ? Color.orange:controllerGreen)
                     .frame(maxWidth:.infinity,alignment:.leading).lineLimit(2)
-                Text("Muni Controller 1.2.2").font(.system(size:10)).foregroundStyle(controllerMuted)
+                Text("Muni Controller 1.3.0").font(.system(size:10)).foregroundStyle(controllerMuted)
             }.frame(height:34)
         }
         .padding(20).tint(controllerGreen)
@@ -195,14 +199,14 @@ struct ControllerView:View {
                 .frame(width:48,height:48).background(controllerGreen,in:RoundedRectangle(cornerRadius:14))
             VStack(alignment:.leading,spacing:3) {
                 Text("Muni Controller").font(.system(size:26,weight:.semibold,design:.rounded)).foregroundStyle(controllerGreen)
-                Text(model.inputMode == .timing ? "강도 바 정지 · 페이스 타점 정지 · Space / 클릭":"당기고 · 밀고 · 공 위에서 놓기").font(.system(size:12)).foregroundStyle(controllerMuted)
+                Text(model.inputMode == .timing ? "강도 바 정지 · 페이스 타점 정지 · Space / 클릭":model.inputMode == .pad ? "당기고 · 밀고 · 공 위에서 놓기":"Bluetooth 검색 · 연결 · 등록 · 실측 샷 전송").font(.system(size:12)).foregroundStyle(controllerMuted)
             }
             Spacer()
             Picker("거리 단위",selection:$model.distanceUnit) {
                 Text("야드 yd").tag(DistanceDisplayUnit.yards)
                 Text("미터 m").tag(DistanceDisplayUnit.meters)
             }.pickerStyle(.segmented).frame(width:180).disabled(locked)
-            Text(model.inputMode == .timing ? "오른손 기준 · Power & Timing":"오른손 기준 · 트랙패드 / 마우스").font(.system(size:11,weight:.medium))
+            Text(model.inputMode == .timing ? "오른손 기준 · Power & Timing":model.inputMode == .pad ? "오른손 기준 · 트랙패드 / 마우스":"Swing Caddie SC4").font(.system(size:11,weight:.medium))
                 .foregroundStyle(controllerGreen).padding(10)
                 .background(controllerGreen.opacity(0.06),in:Capsule())
         }
@@ -239,7 +243,7 @@ struct ControllerView:View {
             Circle().fill(model.serverReady ? Color.green:Color.gray.opacity(0.4)).frame(width:7,height:7)
             Text(model.serverReady ? "응답 확인":"확인 전").font(.system(size:10)).foregroundStyle(controllerMuted)
             Spacer(minLength:5)
-            Label(model.serverReady ? "타점 확정 시 자동 전송":"미연결 · 전송 안 함",systemImage:model.serverReady ? "paperplane.fill":"circle")
+            Label(model.serverReady ? (model.inputMode == .swingCaddie ? "SC4 새 샷 자동 전송":"타점 확정 시 자동 전송"):"미연결 · 전송 안 함",systemImage:model.serverReady ? "paperplane.fill":"circle")
                 .font(.system(size:11,weight:.semibold)).foregroundStyle(model.serverReady ? controllerGreen:controllerMuted)
                 .padding(10).background(controllerGreen.opacity(0.04),in:RoundedRectangle(cornerRadius:9))
         }.padding(13).background(.white,in:RoundedRectangle(cornerRadius:13))
@@ -264,12 +268,19 @@ struct ControllerView:View {
                 }
                 Divider()
                 Text(model.selectedClub.name).font(.system(size:14,weight:.semibold)).foregroundStyle(controllerGreen)
+                Link(CallawayClubCatalog.model(model.selectedCode)+" · 공식 로프트",destination:CallawayClubCatalog.source(model.selectedCode))
+                    .font(.system(size:10)).foregroundStyle(controllerMuted)
                 Text(model.selectedClub.isPutter ? "100% 스윙 기준 굴림 거리":"100% 스윙 기준 캐리")
                     .font(.system(size:11)).foregroundStyle(controllerMuted)
                 HStack {
                     TextField("거리",text:$model.distanceText).textFieldStyle(.roundedBorder)
                         .font(.system(size:20,weight:.medium,design:.rounded)).accessibilityLabel("클럽 기준 거리")
                     Text(model.displayUnit).font(.system(size:14,weight:.medium)).foregroundStyle(controllerGreen)
+                }
+                HStack {
+                    Text("로프트").font(.system(size:12))
+                    TextField("로프트",text:$model.loftText).textFieldStyle(.roundedBorder).accessibilityLabel("클럽 로프트 각도")
+                    Text("°").font(.system(size:14))
                 }
                 if let issue=model.configurationIssue { Text(issue).font(.system(size:10)).foregroundStyle(.orange).fixedSize(horizontal:false,vertical:true) }
                 HStack { Button("설정 저장") { model.applySettings() };Spacer();Button("기본값") { model.restoreClub() }.foregroundStyle(controllerMuted) }
@@ -280,7 +291,6 @@ struct ControllerView:View {
                 DisclosureGroup("스윙 설정") {
                     VStack(alignment:.leading,spacing:10) {
                         HStack {
-                            VStack(alignment:.leading) { Text("발사각 °");TextField("발사각",text:$model.angleText).textFieldStyle(.roundedBorder) }
                             VStack(alignment:.leading) { Text("스핀 rpm");TextField("스핀",text:$model.spinText).textFieldStyle(.roundedBorder) }
                         }
                         Text("페이스 방향 \(number(model.faceBias,1))°")
@@ -289,7 +299,7 @@ struct ControllerView:View {
                         Slider(value:$model.sensitivity,in:0.5...1.8,step:0.1)
                     }.font(.system(size:10)).padding(.top,7)
                 }.font(.system(size:11))
-                Text("게임에서도 같은 클럽을 선택하세요.\n기준 거리는 참고값이며 실제 게임 결과와 다를 수 있습니다.")
+                Text("로프트·힘으로 발사각과 높이를 계산합니다. 게임에서도 같은 클럽을 선택하세요. 기준 거리·높이는 참고값입니다.")
                     .font(.system(size:10)).foregroundStyle(controllerMuted).fixedSize(horizontal:false,vertical:true)
             }.padding(15)
         }.background(.white,in:RoundedRectangle(cornerRadius:13)).disabled(locked)
@@ -363,11 +373,13 @@ struct ControllerView:View {
                             Text(swing.club.isPutter ? "ft":model.distanceUnit.rawValue).font(.system(size:16))
                         }.foregroundStyle(controllerGreen)
                     }
+                    metric("참고 최고높이",number(swing.apexMeters,1)+" m")
                     Group {
                         metric("볼 속도",number(swing.ballMPH,1)+" mph")
                         metric("스핀",number(swing.spin,0)+" rpm")
                         metric("스핀축",number(swing.spinAxis,1)+"°")
                         metric("발사각",number(swing.launchAngle,1)+"°")
+                        metric("로프트",number(swing.club.loft,1)+"°")
                         metric("출발 방향",number(swing.launchDirection,1)+"°")
                         metric("클럽 속도",number(swing.clubMPH,1)+" mph")
                     }

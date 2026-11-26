@@ -1,9 +1,9 @@
 import Foundation
 
 enum ControllerInputMode:String,CaseIterable,Identifiable {
-    case timing, pad
+    case timing, pad, swingCaddie
     var id:String { rawValue }
-    var title:String { self == .timing ? "파워 · 타이밍":"트랙패드 스윙" }
+    var title:String { self == .timing ? "파워 · 타이밍":self == .pad ? "트랙패드 스윙":"스윙캐디 연결" }
 }
 
 struct TimingPower:Equatable,Hashable,CaseIterable,Identifiable {
@@ -164,7 +164,7 @@ enum TimingSwingEngine {
         let contact:SwingContact = judgement.grade == .perfect || judgement.grade == .excellent ? .center:t<0 ? .heel:.toe
         let ball=club.fullBallMPH*pow(p*judgement.distanceRetention,club.isPutter ? 0.5:1/1.8)
         let clubSpeed=club.fullBallMPH/club.smash*pow(p,club.isPutter ? 0.5:1/1.8)
-        let angle=club.isPutter ? 0:club.launchAngle*(0.7+0.3*sqrt(p))*(1-0.2*e)
+        let angle=club.isPutter ? 0:ClubFlight.launch(club:club,power:p)*(1-0.2*e)
         let axis=club.isPutter ? 0:controllerClamp((face-aim)*2-horizontal*(club.isWood ? 0.3:0.18),-40,40)
         func r(_ n:Double)->Double { abs(n)<0.0005 ? 0:(n*1000).rounded()/1000 }
         return ControllerSwing(id:UUID(),club:club,points:[],power:p,pathDegrees:r(aim),faceDegrees:r(face),

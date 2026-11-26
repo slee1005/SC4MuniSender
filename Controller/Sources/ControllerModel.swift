@@ -6,7 +6,7 @@ import SwiftUI
     @Published var selectedCode = "PW" { didSet { loadFields(); resetSwing() } }
     @Published var distanceUnit: DistanceDisplayUnit = .yards { didSet { loadFields(); persist() } }
     @Published var distanceText = ""
-    @Published var angleText = ""
+    @Published var loftText = ""
     @Published var spinText = ""
     @Published var host: String { didSet { connectionChanged() } }
     @Published var port: String { didSet { connectionChanged() } }
@@ -21,12 +21,19 @@ import SwiftUI
     @Published var attempted = false
     @Published var sent = false
     @Published private(set) var isExample = false
-    @Published var message = "연습 모드입니다."
+    @Published var message = "MuniGolf 연결 확인 후 사용해 주세요."
     @Published var isError = false
     @Published var resetToken = UUID()
     @Published var history: [String] = []
+    @Published var sc4TransferStatus="이 탭에서 새 샷을 수신하면 MuniGolf로 자동 전송합니다."
+    @Published private(set) var sc4TransferRecordID:String?
+    let swingCaddie:SwingCaddieBluetooth
     @Published var inputMode:ControllerInputMode = .timing {
-        didSet { resetSwing();defaults?.set(inputMode.rawValue,forKey:"controllerInputMode") }
+        didSet {
+            resetSwing();defaults?.set(inputMode.rawValue,forKey:"controllerInputMode")
+            if inputMode != .swingCaddie { swingCaddie.stopSearch() }
+            message=inputMode == .swingCaddie ? sc4TransferStatus:inputMode == .timing ? "START → 강도 선택 → 페이스 타점 선택":"공에서 누르고 뒤로 당겼다가 앞으로 밀고 놓으세요."
+        }
     }
     @Published var timingPower:TimingPower = .p70 {
         didSet {
@@ -61,19 +68,25 @@ import SwiftUI
     private var captureAim = 0.0
     private var captureFace = 0.0
     private var captureSensitivity = 1.0
+    private var receivedSC4IDs=Set<String>()
+    private var receivedSC4Order:[String]=[]
 
-    init(preview: Bool = false,
+    init(preview: Bool = false,preferences:UserDefaults?=nil,
          exchange: @escaping (String, UInt16, Data) async throws -> APIReply = {
              try await OpenConnectTransport.exchange(host:$0,port:$1,data:$2)
          }) {
         self.exchange=exchange
-        let prefs = preview ? nil : UserDefaults.standard
+        let prefs = preview ? preferences : preferences ?? UserDefaults.standard
         defaults = prefs
+        swingCaddie=SwingCaddieBluetooth(defaults:prefs,preview:preview)
         if let data = prefs?.data(forKey:"controllerClubs"),
            let saved = try? JSONDecoder().decode([ControllerClub].self,from:data),
            Set(saved.map(\.id)) == Set(ControllerClub.defaults.map(\.id)),
            saved.count == ControllerClub.defaults.count, saved.allSatisfy({ (try? $0.validated()) != nil }) {
-            clubs = saved
+            if (prefs?.integer(forKey:"controllerCallawayRevision") ?? 0)<CallawayClubCatalog.revision {
+                prefs?.set(data,forKey:"controllerClubsBeforeCallaway")
+                clubs=saved.map { CallawayClubCatalog.applyingDefaults(to:$0) }
+            } else { clubs = saved }
         } else { clubs = ControllerClub.defaults }
         host = prefs?.string(forKey:"gameHost") ?? "127.0.0.1"
         port = prefs?.string(forKey:"gamePort") ?? "9210"
@@ -88,8 +101,10 @@ import SwiftUI
         shotType=ControllerShotType(rawValue:prefs?.string(forKey:"controllerShotType") ?? "straight") ?? .straight
         attackStyle=ControllerAttackStyle(rawValue:prefs?.string(forKey:"controllerAttackStyle") ?? "neutral") ?? .neutral
         loadFields()
+        persist();prefs?.set(CallawayClubCatalog.revision,forKey:"controllerCallawayRevision")
+        swingCaddie.onShot = { [weak self] shot in self?.receiveSC4(shot) }
         livePower=inputMode == .timing ? timingPower.fraction:0
-        message = "START → Space/클릭으로 강도 확정 → Space/클릭으로 페이스 타점 확정"
+        message = inputMode == .swingCaddie ? sc4TransferStatus:"START → Space/클릭으로 강도 확정 → Space/클릭으로 페이스 타점 확정"
         if preview { example(.center) }
     }
     var selectedClub: ControllerClub { clubs.first { $0.id == selectedCode } ?? clubs[0] }
@@ -117,17 +132,17 @@ import SwiftUI
     }
     private func configuredClub() throws -> ControllerClub {
         guard let distance=Double(distanceText),distance.isFinite,
-              let angle=Double(angleText),let spin=Double(spinText) else {
-            throw ReplayError.input("기준 거리·발사각·스핀에 숫자를 입력해 주세요.")
+              let loft=Double(loftText),let spin=Double(spinText) else {
+            throw ReplayError.input("기준 거리·로프트·스핀에 숫자를 입력해 주세요.")
         }
         var club=selectedClub
         club.baseDistance=club.isPutter || distanceUnit == .yards ? distance : distance/0.9144
-        club.launchAngle=angle;club.spin=spin
+        club.loft=loft;club.launchAngle=ClubFlight.referenceLaunch(loft:loft,code:club.id,attack:club.attack);club.spin=spin
         return try club.validated()
     }
     private func loadFields() {
         distanceText=String(format:"%.1f",locale:Locale(identifier:"en_US_POSIX"),displayedDistance(selectedClub))
-        angleText=ShotInputs.text(selectedClub.launchAngle)
+        loftText=ShotInputs.text(selectedClub.loft)
         spinText=ShotInputs.text(selectedClub.spin)
     }
     func applySettings() {
@@ -267,6 +282,37 @@ import SwiftUI
                 serverReady=true;message="연결 완료 · 다음 스윙부터 페이스 타점을 확정하면 자동 전송합니다."
             } catch { serverReady=false;fail(error.localizedDescription) }
         }
+    }
+    func receiveSC4(_ shot:SC4LiveShot) {
+        guard inputMode == .swingCaddie,receivedSC4IDs.insert(shot.deduplicationKey).inserted else { return }
+        receivedSC4Order.append(shot.deduplicationKey)
+        if receivedSC4Order.count>2048 { receivedSC4IDs.remove(receivedSC4Order.removeFirst()) }
+        sc4TransferRecordID=shot.deduplicationKey
+        guard !busy else { sc4TransferStatus="샷 저장 완료 · 이전 전송 처리 중으로 게임 전송은 건너뜀";return }
+        resetSwing();isError=false
+        guard serverReady else { sc4TransferStatus="샷 저장 완료 · MuniGolf 미연결로 전송 안 함";message=sc4TransferStatus;return }
+        guard sequence<Int.max,let payload=shot.message(number:sequence+1) else {
+            sc4TransferStatus="필수 측정값이 누락되었거나 범위를 벗어나 저장만 했습니다.";message=sc4TransferStatus;return
+        }
+        guard let port=UInt16(port),port>0 else { sc4TransferStatus="게임 포트를 확인해 주세요.";return }
+        do {
+            let data=try payload.encoded(),host=host.trimmingCharacters(in:.whitespacesAndNewlines)
+            sequence+=1;defaults?.set(sequence,forKey:"controllerShotNumber")
+            attempted=true;busy=true;sc4TransferStatus="SC4 샷 전송 중…";message=sc4TransferStatus
+            Task {
+                defer { busy=false }
+                do {
+                    _=try await exchange(host,port,data)
+                    sent=true
+                    if sc4TransferRecordID == shot.deduplicationKey { sc4TransferStatus="SC4 샷 전송 완료";message=sc4TransferStatus }
+                    addHistory("SC4 · \(shot.club ?? "클럽 미확인") · 전송 완료")
+                } catch {
+                    serverReady=false
+                    if sc4TransferRecordID == shot.deduplicationKey { sc4TransferStatus="전송 응답 확인 필요 · 자동 재전송 안 함" }
+                    fail(error.localizedDescription)
+                }
+            }
+        } catch { sc4TransferStatus="샷 저장 완료 · 전송값을 확인해 주세요.";fail(error.localizedDescription) }
     }
     private func send() {
         guard canSend,let swing=swing else { return }
