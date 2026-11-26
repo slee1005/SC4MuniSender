@@ -102,7 +102,9 @@ struct ControllerSwing: Identifiable {
     let attack: Double
     /// Reference distance from the controller's power curve, not a calibrated game result.
     let referenceDistance: Double
+    let timing: TimingJudgement?
     var canSend: Bool { contact != .miss && ballMPH >= 0.01 }
+    var resultLabel:String { timing.map { "\($0.grade.title) · \(contact.title)" } ?? contact.title }
 
     func message(deviceID: String, number: Int) throws -> ControllerMessage {
         guard canSend, number > 0 else { throw ReplayError.input("헛스윙은 샷으로 전송하지 않습니다.") }
@@ -212,7 +214,7 @@ enum ControllerSwingEngine {
             verticalImpactMM: r(-controllerClamp(end.y/0.55,-1,1)*(club.isWood ? 22:16)),
             ballMPH: r(ball), clubMPH: r(clubSpeed), launchAngle: r(angle), launchDirection: r(direction),
             spin: spin.rounded(), spinAxis: r(axis), attack: r(controllerClamp(club.attack+end.y*10,-15,12)),
-            referenceDistance: distance)
+            referenceDistance: distance,timing:nil)
     }
 
     static func example(_ contact: SwingContact, depth: Double = 0.72) -> [SwingPoint] {

@@ -9,6 +9,7 @@ swiftc -swift-version 5 -target arm64-apple-macosx13.0 -module-cache-path "$cont
   "$controller_root/Sources/ReplayData.swift" "$controller_root/Sources/OpenConnectTransport.swift" \
   "$controller_root"/Controller/Sources/*.swift -o "$controller_output/Contents/MacOS/MuniController"
 cp "$controller_root/Controller/Info.plist" "$controller_output/Contents/Info.plist"
+cp "$controller_root/Controller/PrivacyInfo.xcprivacy" "$controller_output/Contents/Resources/PrivacyInfo.xcprivacy"
 cp "$controller_root/Controller/README.md" "$controller_output/Contents/Resources/사용법.md"
 codesign --force --sign - "$controller_output"
 codesign --verify --deep --strict "$controller_output"

@@ -25,6 +25,21 @@ import SwiftUI
     @Published var isError = false
     @Published var resetToken = UUID()
     @Published var history: [String] = []
+    @Published var inputMode:ControllerInputMode = .timing {
+        didSet { resetSwing();defaults?.set(inputMode.rawValue,forKey:"controllerInputMode") }
+    }
+    @Published var timingPower:TimingPower = .p70 {
+        didSet { resetSwing();defaults?.set(timingPower.rawValue,forKey:"controllerTimingPower") }
+    }
+    @Published var randomTimingDirection=true {
+        didSet { defaults?.set(randomTimingDirection,forKey:"controllerRandomTimingDirection") }
+    }
+    @Published var timingSession:TimingSession?
+    @Published var timingResult:TimingJudgement?
+    @Published var timingState:TimingState = .ready
+    var timingActive:Bool { capturing && timingState == .running && timingSession != nil }
+    private var timingExpiryTask:Task<Void,Never>?
+    private var timingClub:ControllerClub?
     private let defaults: UserDefaults?
     private var sequence: Int
     private let deviceID: String
@@ -53,8 +68,12 @@ import SwiftUI
         deviceID = prefs?.string(forKey:"controllerDeviceID") ?? "MuniController-"+String(UUID().uuidString.prefix(8))
         if !preview { prefs?.set(deviceID,forKey:"controllerDeviceID") }
         distanceUnit = DistanceDisplayUnit(rawValue:prefs?.string(forKey:"controllerDistanceUnit") ?? "yd") ?? .yards
+        inputMode=ControllerInputMode(rawValue:prefs?.string(forKey:"controllerInputMode") ?? "timing") ?? .timing
+        timingPower=TimingPower(rawValue:prefs?.integer(forKey:"controllerTimingPower") ?? 70) ?? .p70
+        randomTimingDirection=prefs?.object(forKey:"controllerRandomTimingDirection") as? Bool ?? true
         loadFields()
-        message = "연습 모드입니다. 공에서 누르고 뒤로 당겼다가 공 위에서 놓아 보세요."
+        livePower=inputMode == .timing ? timingPower.fraction:0
+        message = "연습 모드입니다. 파워를 고르고 START로 시작한 뒤 중앙에서 SPACE를 누르세요."
         if preview { example(.center) }
     }
     var selectedClub: ControllerClub { clubs.first { $0.id == selectedCode } ?? clubs[0] }
@@ -106,11 +125,13 @@ import SwiftUI
         defaults?.set(host,forKey:"gameHost");defaults?.set(port,forKey:"gamePort")
     }
     func resetSwing() {
+        timingExpiryTask?.cancel();timingExpiryTask=nil
+        timingSession=nil;timingResult=nil;timingState = .ready;timingClub=nil
         resetToken=UUID();capturing=false;captureClub=nil;livePower=0
         swing=nil;attempted=false;sent=false
     }
     func begin() -> Bool {
-        guard !busy,!capturing else { return false }
+        guard inputMode == .pad,!busy,!capturing else { return false }
         do {
             let club=try configuredClub()
             if let index=clubs.firstIndex(where:{$0.id==club.id}) { clubs[index]=club };persist()
@@ -125,11 +146,12 @@ import SwiftUI
     }
     func update(depth: Double) { livePower=controllerClamp(depth/0.85*captureSensitivity,0,1.15) }
     func cancel(_ reason: String) {
+        timingExpiryTask?.cancel();timingExpiryTask=nil;timingSession=nil;timingResult=nil;timingState = .cancelled;timingClub=nil
         capturing=false;captureClub=nil;livePower=0;swing=nil;attempted=false;sent=false
         message=reason;isError=false
     }
     func finish(_ points: [SwingPoint]) {
-        guard capturing,let club=captureClub else { return }
+        guard inputMode == .pad,capturing,let club=captureClub else { return }
         capturing=false;captureClub=nil
         do {
             let result=try ControllerSwingEngine.analyze(points,club:club,aim:captureAim,faceBias:captureFace,sensitivity:captureSensitivity)
@@ -141,15 +163,76 @@ import SwiftUI
     }
     func example(_ contact: SwingContact) {
         guard !busy,!capturing else { return }
+        inputMode = .pad
         gameMode=false;resetToken=UUID()
         if begin() { finish(ControllerSwingEngine.example(contact)) }
         message="연습 예시 · \(contact.title). 게임에 전송하지 않았습니다."
+    }
+    @discardableResult func startTiming(at time:Double=ProcessInfo.processInfo.systemUptime,direction:TimingDirection?=nil)->Bool {
+        guard inputMode == .timing,!busy,!capturing,time.isFinite,time>=0 else { return false }
+        do {
+            let club=try configuredClub()
+            if let index=clubs.firstIndex(where:{$0.id==club.id}) { clubs[index]=club };persist()
+            resetSwing()
+            captureClub=club;captureAim=aim;captureFace=faceBias
+            timingClub=club
+            let chosen=direction ?? (randomTimingDirection && Bool.random() ? .rightToLeft:.leftToRight)
+            let session=TimingSession(id:UUID(),power:timingPower,direction:chosen,startedAt:time)
+            timingSession=session;timingState = .running;capturing=true;livePower=timingPower.fraction
+            isError=false;message="중앙 임팩트 지점에서 SPACE를 누르세요. · \(chosen.title)"
+            timingExpiryTask=Task { [weak self] in
+                do {
+                    while !Task.isCancelled {
+                        let remaining=session.endsAt-ProcessInfo.processInfo.systemUptime
+                        if remaining<=0 { self?.expireTiming(sessionID:session.id,at:ProcessInfo.processInfo.systemUptime);return }
+                        try await Task.sleep(nanoseconds:UInt64(min(remaining,10)*1_000_000_000)+1)
+                    }
+                } catch { return }
+            }
+            return true
+        } catch { resetSwing();fail(error.localizedDescription);return false }
+    }
+    func timingSpace(at time:Double=ProcessInfo.processInfo.systemUptime) {
+        guard inputMode == .timing,!busy else { return }
+        if timingActive { hitTiming(at:time) }
+        else if timingState == .expired,let session=timingSession,time>=session.startedAt,time<=session.endsAt {
+            // An event queued before the deadline remains valid even if the UI
+            // processed its timeout first. Judge the event's actual timestamp.
+            hitTiming(at:time)
+        } else { _=startTiming() }
+    }
+    func hitTiming(at time:Double=ProcessInfo.processInfo.systemUptime) {
+        guard let session=timingSession,let club=timingClub,
+              timingActive || (timingState == .expired && time>=session.startedAt && time<=session.endsAt) else { return }
+        if time>session.endsAt { expireTiming(sessionID:session.id,at:time);return }
+        do {
+            let judgement=try session.judge(at:time)
+            let result=TimingSwingEngine.shot(judgement,club:club,aim:captureAim,faceBias:captureFace)
+            _=try result.message(deviceID:deviceID,number:1).encoded()
+            if timingState == .expired,history.first == "\(club.name) · 타이밍 시간 초과 · 전송 안 함" { history.removeFirst() }
+            timingExpiryTask?.cancel();timingExpiryTask=nil
+            capturing=false;captureClub=nil;timingState = .hit;timingResult=judgement
+            swing=result;livePower=judgement.power.fraction;attempted=false;sent=false;isError=false
+            message=String(format:"%@ · 중앙 오차 %.1f%% · %@",judgement.grade.title,judgement.error*100,judgement.sideLabel)
+            if gameMode && serverReady { send() }
+        } catch { cancel("타이밍 스윙을 취소했습니다.");fail(error.localizedDescription) }
+    }
+    func expireTiming(sessionID:UUID,at time:Double) {
+        guard timingActive,let session=timingSession,session.id==sessionID,time>=session.endsAt else { return }
+        timingExpiryTask?.cancel();timingExpiryTask=nil
+        capturing=false;captureClub=nil;timingState = .expired;swing=nil;timingResult=nil
+        attempted=false;sent=false;isError=false
+        message="Miss · 끝까지 SPACE를 누르지 않았습니다. 헛스윙으로 처리하며 샷을 전송하지 않습니다."
+        addHistory("\(selectedClub.name) · 타이밍 시간 초과 · 전송 안 함")
+    }
+    func cancelTimingForFocusLoss() {
+        if timingActive { cancel("포커스를 벗어나 타이밍 스윙을 취소했습니다.") }
     }
     func setGameMode(_ enabled: Bool) {
         guard !busy,!capturing else { return }
         if enabled && !serverReady { fail("먼저 ‘연결 확인’을 눌러 주세요.");return }
         gameMode=enabled;isError=false
-        message=enabled ? "게임 모드 · 다음 스윙부터 공을 맞히면 자동 전송합니다." : "연습 모드 · 스윙을 해도 게임에 전송하지 않습니다."
+            message=enabled ? "게임 모드 · 다음 스윙부터 타격하면 자동 전송합니다." : "연습 모드 · 스윙을 해도 게임에 자동 전송하지 않습니다."
     }
     func checkConnection() {
         guard !busy,!capturing else { return }
@@ -176,14 +259,14 @@ import SwiftUI
             let next=sequence+1
             let data=try swing.message(deviceID:deviceID,number:next).encoded()
             sequence=next;defaults?.set(next,forKey:"controllerShotNumber")
-            attempted=true;busy=true;isError=false;message="\(swing.club.name) · \(swing.contact.title) 전송 중…"
+            attempted=true;busy=true;isError=false;message="\(swing.club.name) · \(swing.resultLabel) 전송 중…"
             let host=host.trimmingCharacters(in:.whitespacesAndNewlines)
             Task {
                 defer { busy=false }
                 do {
                     _=try await exchange(host,port,data)
-                    sent=true;serverReady=true;message="전송 완료 · \(swing.club.name) · \(swing.contact.title)"
-                    addHistory("#\(next) · \(swing.club.name) · \(swing.contact.title) · 전송 완료")
+                    sent=true;serverReady=true;message="전송 완료 · \(swing.club.name) · \(swing.resultLabel)"
+                    addHistory("#\(next) · \(swing.club.name) · \(swing.resultLabel) · 전송 완료")
                 } catch {
                     serverReady=false;gameMode=false;fail(error.localizedDescription)
                     addHistory("#\(next) · \(swing.club.name) · 응답 확인 필요")

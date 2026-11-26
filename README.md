@@ -1,6 +1,6 @@
 # SC4 Muni Sender
 
-트랙패드 스윙으로 샷을 만드는 별도 앱 [Muni Controller](Controller/README.md)도 함께 제공합니다.
+파워·타이밍 게임과 트랙패드 스윙으로 샷을 만드는 별도 앱 [Muni Controller](Controller/README.md)도 함께 제공합니다.
 `zsh build-controller.sh`로 빌드하고 `dist/Muni Controller.app`을 실행합니다.
 
 SC4 저장 샷을 선택해 MuniGolf의 Open Connect 입력으로 보내는 macOS 앱입니다.

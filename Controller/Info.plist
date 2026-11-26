@@ -6,10 +6,10 @@
     <key>CFBundleName</key><string>Muni Controller</string>
     <key>CFBundleDisplayName</key><string>Muni Controller</string>
     <key>CFBundlePackageType</key><string>APPL</string>
-    <key>CFBundleShortVersionString</key><string>1.0.0</string>
-    <key>CFBundleVersion</key><string>1</string>
+    <key>CFBundleShortVersionString</key><string>1.1.0</string>
+    <key>CFBundleVersion</key><string>2</string>
     <key>CFBundleDevelopmentRegion</key><string>ko</string>
     <key>LSMinimumSystemVersion</key><string>13.0</string>
     <key>NSHighResolutionCapable</key><true/>
-    <key>NSLocalNetworkUsageDescription</key><string>트랙패드 스윙으로 만든 샷을 로컬 네트워크의 MuniGolf로 보냅니다.</string>
+    <key>NSLocalNetworkUsageDescription</key><string>타이밍·트랙패드 스윙으로 만든 샷을 로컬 네트워크의 MuniGolf로 보냅니다.</string>
 </dict></plist>
